@@ -603,10 +603,24 @@ class LCEProxy {
     const reader = new PacketReader(data.slice(1));
     const clientVersion = reader.readInt();
     const username = reader.readString();
-    //console.log(username);
 
     client.state = "login";
     client.username = !USE_LEGACY_USERNAME ? CUSTOM_USERNAME : username;
+
+    if (client.javaClient) {
+      const oldJavaClient = client.javaClient;
+      client.javaClient = null;
+
+      oldJavaClient.removeAllListeners();
+      oldJavaClient.on("error", () => {
+        /* do nothing */
+      });
+      try {
+        oldJavaClient.end();
+      } catch (err) {
+        /* do nothing */
+      }
+    }
 
     this.connectToJavaServer(client);
   }
@@ -2237,7 +2251,7 @@ class LCEProxy {
         javaItem = {
           blockId: javaItemId,
           itemCount: item.itemCount,
-          itemDamage: 0,
+          itemDamage: item.itemDamage || 0,
         };
         if (item.nbt) {
           javaItem.nbtData = this.convertLCENBTToJava(item.nbt);
@@ -2379,35 +2393,35 @@ class LCEProxy {
     }
     const count = reader.readByte();
     const damage = reader.readShort();
-    
+
     if (reader.offset + 2 > reader.buffer.length) {
       return {
         blockId: itemId,
         itemCount: count,
         itemDamage: damage,
-        nbt: null
+        nbt: null,
       };
     }
-    
+
     const nbtLength = reader.readShort();
-    
+
     let nbt = null;
     if (nbtLength > 0 && reader.offset + nbtLength <= reader.buffer.length) {
       const nbtBytes = reader.readBytes(nbtLength);
       nbt = nbtBytes;
     }
-    
+
     return {
       blockId: itemId,
       itemCount: count,
       itemDamage: damage,
-      nbt: nbt
+      nbt: nbt,
     };
   }
 
   convertLCENBTToJava(nbtBytes) {
     try {
-      const zlib = require('zlib');
+      const zlib = require("zlib");
       const decompressed = zlib.gunzipSync(nbtBytes);
       const nbtReader = new PacketReader(decompressed);
       const rootTag = this.readNBTTag(nbtReader);
@@ -2427,21 +2441,25 @@ class LCEProxy {
   readNBTPayload(reader, type, name) {
     switch (type) {
       case 1:
-        return { type: 'byte', name, value: reader.readByte() };
+        return { type: "byte", name, value: reader.readByte() };
       case 2:
-        return { type: 'short', name, value: reader.readShort() };
+        return { type: "short", name, value: reader.readShort() };
       case 3:
-        return { type: 'int', name, value: reader.readInt() };
+        return { type: "int", name, value: reader.readInt() };
       case 8:
-        return { type: 'string', name, value: reader.readUTF() };
+        return { type: "string", name, value: reader.readUTF() };
       case 9:
         const listType = reader.readByte();
         const listSize = reader.readInt();
         const listItems = [];
         for (let i = 0; i < listSize; i++) {
-          listItems.push(this.readNBTPayload(reader, listType, ''));
+          listItems.push(this.readNBTPayload(reader, listType, ""));
         }
-        return { type: 'list', name, value: { type: listType, value: listItems } };
+        return {
+          type: "list",
+          name,
+          value: { type: listType, value: listItems },
+        };
       case 10:
         const compound = {};
         while (true) {
@@ -2450,7 +2468,7 @@ class LCEProxy {
           const tagName = reader.readUTF();
           compound[tagName] = this.readNBTPayload(reader, tagType, tagName);
         }
-        return { type: 'compound', name, value: compound };
+        return { type: "compound", name, value: compound };
       default:
         return null;
     }
@@ -2505,15 +2523,18 @@ class LCEProxy {
     }
 
     if (client.javaClient) {
+      const oldJavaClient = client.javaClient;
+      client.javaClient = null;
+
+      oldJavaClient.removeAllListeners();
+      oldJavaClient.on("error", () => {
+        /* do nothing */
+      });
       try {
-        client.javaClient.removeAllListeners("error");
-        client.javaClient.removeAllListeners("end");
-        client.javaClient.removeAllListeners();
-        client.javaClient.end();
+        oldJavaClient.end();
       } catch (err) {
         /* do nothing */
       }
-      client.javaClient = null;
     }
 
     if (client.socket && !client.socket.destroyed) {

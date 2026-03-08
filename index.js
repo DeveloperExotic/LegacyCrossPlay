@@ -7,7 +7,7 @@ process.on("warning", (warning) => {
   console.warn(warning.name, warning.message);
 });
 
-const LCEProxy = require("./src/LCEProxy");
+const LCEProxy = require("./src/lceproxy");
 
 const proxy = new LCEProxy();
 proxy.start();
