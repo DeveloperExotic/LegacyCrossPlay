@@ -57,13 +57,19 @@ function connectToJavaServer(proxy, client) {
     if (client.state === "play") {
       let reason = 10;
       if (packet.reason) {
-        const reasonText = typeof packet.reason === "string" ? packet.reason : JSON.stringify(packet.reason);
+        const reasonText =
+          typeof packet.reason === "string"
+            ? packet.reason
+            : JSON.stringify(packet.reason);
         const lowerReason = reasonText.toLowerCase();
         if (lowerReason.includes("ban")) {
           reason = 10;
         } else if (lowerReason.includes("kick")) {
           reason = 10;
-        } else if (lowerReason.includes("timeout") || lowerReason.includes("timed out")) {
+        } else if (
+          lowerReason.includes("timeout") ||
+          lowerReason.includes("timed out")
+        ) {
           reason = 20;
         } else if (lowerReason.includes("full")) {
           reason = 23;
@@ -507,12 +513,33 @@ function connectToJavaServer(proxy, client) {
             if (uuid && client.javaPlayers.has(uuid)) {
               const player = client.javaPlayers.get(uuid);
               if (player.spawned && player.entityId) {
-                const removeWriter = new PacketWriter();
-                removeWriter.writeByte(1);
-                removeWriter.writeInt(player.entityId);
-                proxy.sendPacket(client, 0x1d, removeWriter.toBuffer());
+                const isDying =
+                  client._dyingPlayers &&
+                  client._dyingPlayers.has(player.javaEntityId);
+
+                if (!isDying) {
+                  const removeWriter = new PacketWriter();
+                  removeWriter.writeByte(1);
+                  removeWriter.writeInt(player.entityId);
+                  proxy.sendPacket(client, 0x1d, removeWriter.toBuffer());
+                  client.javaPlayers.delete(uuid);
+                } else {
+                  setTimeout(() => {
+                    if (client.javaPlayers.has(uuid)) {
+                      const removeWriter = new PacketWriter();
+                      removeWriter.writeByte(1);
+                      removeWriter.writeInt(player.entityId);
+                      proxy.sendPacket(client, 0x1d, removeWriter.toBuffer());
+                      client.javaPlayers.delete(uuid);
+                    }
+                    if (client._dyingPlayers) {
+                      client._dyingPlayers.delete(player.javaEntityId);
+                    }
+                  }, 1500);
+                }
+              } else {
+                client.javaPlayers.delete(uuid);
               }
-              client.javaPlayers.delete(uuid);
             }
           }
         }
@@ -548,11 +575,35 @@ function connectToJavaServer(proxy, client) {
         if (playerName !== "Player") {
           playerInfo.name = playerName;
         }
+        if (playerInfo.javaEntityId && client._dyingPlayers) {
+          client._dyingPlayers.delete(playerInfo.javaEntityId);
+        }
       }
 
-      const lceEntityId = proxy.mapJavaEntityIdToLce(client, packet.entityId);
+      if (
+        playerInfo.javaEntityId &&
+        playerInfo.javaEntityId !== packet.entityId
+      ) {
+        if (client.javaToLceEntityId.has(playerInfo.javaEntityId)) {
+          const oldLceId = client.javaToLceEntityId.get(
+            playerInfo.javaEntityId,
+          );
+          client.javaToLceEntityId.delete(playerInfo.javaEntityId);
+          client.javaToLceEntityId.set(packet.entityId, oldLceId);
+          playerInfo.entityId = oldLceId;
+        } else {
+          playerInfo.entityId = proxy.mapJavaEntityIdToLce(
+            client,
+            packet.entityId,
+          );
+        }
+      } else {
+        playerInfo.entityId = proxy.mapJavaEntityIdToLce(
+          client,
+          packet.entityId,
+        );
+      }
 
-      playerInfo.entityId = lceEntityId;
       playerInfo.javaEntityId = packet.entityId;
       playerInfo.x = packet.x / 32;
       playerInfo.y = packet.y / 32;
@@ -561,6 +612,13 @@ function connectToJavaServer(proxy, client) {
       playerInfo.pitch = (packet.pitch / 256) * 360;
 
       if (playerInfo.name && playerInfo.name !== "Player") {
+        if (playerInfo.spawned) {
+          const removeWriter = new PacketWriter();
+          removeWriter.writeByte(1);
+          removeWriter.writeInt(playerInfo.entityId);
+          proxy.sendPacket(client, 0x1d, removeWriter.toBuffer());
+        }
+
         playerInfo.spawned = true;
         try {
           proxy.sendAddPlayerPacket(client, playerInfo);
@@ -1627,6 +1685,8 @@ function connectToJavaServer(proxy, client) {
 
       if (riderJavaId === client.javaPlayerEntityId) {
         riderId = client.lcePlayerEntityId || client.smallId;
+        client.isRiding = vehicleJavaId !== -1;
+        client.ridingEntityId = vehicleJavaId;
       } else {
         for (const [uuid, player] of client.javaPlayers) {
           if (player.javaEntityId === riderJavaId && player.spawned) {

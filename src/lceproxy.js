@@ -355,6 +355,9 @@ class LCEProxy {
         case 0x13:
           return 1 + 9;
 
+        case 0x1b:
+          return 1 + 10;
+
         case 0x66:
           let containerClickSize = 1 + 1 + 2 + 1 + 2 + 1;
           if (offset + containerClickSize + 2 <= data.length) {
@@ -485,6 +488,11 @@ class LCEProxy {
       case 0x13: //PlayerCommandPacket - 19
         if (client.state === "play") {
           this.handlePlayerCommand(client, packetData);
+        }
+        break;
+      case 0x1b: //PlayerInputPacket - 27
+        if (client.state === "play") {
+          this.handlePlayerInput(client, packetData);
         }
         break;
       case 0x65: //ContainerClosePacket - 101
@@ -1818,24 +1826,20 @@ class LCEProxy {
     const action = reader.readByte();
     const actionData = reader.readInt();
 
-    const actionNames = {
-      1: "START_SNEAKING",
-      2: "STOP_SNEAKING",
-      3: "STOP_SLEEPING",
-      4: "START_SPRINTING",
-      5: "STOP_SPRINTING",
-      6: "START_IDLEANIM",
-      7: "STOP_IDLEANIM",
-      8: "RIDING_JUMP",
-      9: "OPEN_INVENTORY",
-    };
-
     if (client.javaClient && client.javaClient.write) {
       try {
         let javaAction = -1;
 
         if (action === 1) {
-          javaAction = 0; //java: START_SNEAKING
+          javaAction = 0;
+          if (client.isRiding) {
+            client.javaClient.write("steer_vehicle", {
+              sideways: 0,
+              forward: 0,
+              jump: false,
+              unmount: true,
+            });
+          }
         } else if (action === 2) {
           javaAction = 1; //java: STOP_SNEAKING
         } else if (action === 3) {
@@ -1856,6 +1860,45 @@ class LCEProxy {
             actionId: javaAction,
             jumpBoost: actionData || 0,
           });
+        }
+      } catch (err) {
+        /* do nothing */
+      }
+    }
+  }
+
+  handlePlayerInput(client, data) {
+    const reader = new PacketReader(data.slice(1));
+    const xxa = reader.readFloat();
+    const yya = reader.readFloat();
+    const isJumping = reader.readBoolean();
+    const isSneaking = reader.readBoolean();
+
+    if (client.javaClient && client.javaClient.write) {
+      try {
+        if (client.isRiding) {
+          if (isSneaking && !client.sentSneak) {
+            client.sentSneak = true;
+            client.javaClient.write("entity_action", {
+              entityId: client.javaPlayerEntityId,
+              actionId: 0,
+              jumpBoost: 0,
+            });
+            return;
+          }
+
+          if (!isSneaking) {
+            client.sentSneak = false;
+          }
+
+          if (xxa !== 0 || yya !== 0 || isJumping) {
+            client.javaClient.write("steer_vehicle", {
+              sideways: xxa,
+              forward: yya,
+              jump: isJumping,
+              unmount: false,
+            });
+          }
         }
       } catch (err) {
         /* do nothing */
