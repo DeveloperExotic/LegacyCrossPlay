@@ -1,4 +1,7 @@
-const PacketWriter = require("../../PacketWriter");
+/* --------------------------------------------------------------- */
+/*                        worldpackets.js                          */
+/* --------------------------------------------------------------- */
+const PacketWriter = require("../../packetwriter");
 
 function sendLevelSoundPacket(proxy, client, soundId, x, y, z, volume, pitch) {
   const safeX = x !== undefined && x !== null && !isNaN(x) ? x : 0;
@@ -70,3 +73,4 @@ module.exports = {
   sendLevelParticlesPacket,
   sendTileUpdatePacket,
 };
+/* --------------------------------------------------------------- */

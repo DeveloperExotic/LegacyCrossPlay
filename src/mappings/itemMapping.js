@@ -1,4 +1,7 @@
-﻿function createItemMapping() {
+﻿/* --------------------------------------------------------------- */
+/*                         itemmapping.js                          */
+/* --------------------------------------------------------------- */
+function createItemMapping() {
   return {
     256: 256, //iron_shovel
     257: 257, //iron_pickaxe
@@ -172,3 +175,4 @@
 }
 
 module.exports = { createItemMapping };
+/* --------------------------------------------------------------- */

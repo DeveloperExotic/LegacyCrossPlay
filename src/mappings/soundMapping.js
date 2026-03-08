@@ -1,4 +1,7 @@
-﻿function mapJavaSoundToLCE(soundName) {
+﻿/* --------------------------------------------------------------- */
+/*                         soundmapping.js                         */
+/* --------------------------------------------------------------- */
+function mapJavaSoundToLCE(soundName) {
   const soundMap = {
     "mob.chicken.say": 0,
     "mob.chicken": 0,
@@ -227,3 +230,4 @@
 }
 
 module.exports = { mapJavaSoundToLCE };
+/* --------------------------------------------------------------- */

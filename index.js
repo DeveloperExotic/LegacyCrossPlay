@@ -1,3 +1,6 @@
+/* --------------------------------------------------------------- */
+/*                           index.js                              */
+/* --------------------------------------------------------------- */
 process.removeAllListeners("warning");
 process.on("warning", (warning) => {
   if (warning.name === "DeprecationWarning") return;
@@ -13,3 +16,4 @@ process.on("SIGINT", () => {
   proxy.stop();
   process.exit(0);
 });
+/* --------------------------------------------------------------- */

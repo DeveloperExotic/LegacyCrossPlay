@@ -1,3 +1,6 @@
+/* --------------------------------------------------------------- */
+/*                           items.js                              */
+/* --------------------------------------------------------------- */
 function readSlot(reader) {
   const id = reader.readShort();
   if (id === -1 || id === 0) {
@@ -48,36 +51,51 @@ function readItem(reader) {
   const count = reader.readByte();
   const damage = reader.readShort();
 
+  const nbtSize = reader.readShort();
+  let nbtData = null;
+  if (nbtSize > 0) {
+    const nbtBytes = reader.readBytes(nbtSize);
+    nbtData = { raw: nbtBytes };
+  }
+
   return {
     blockId: itemId,
     itemCount: count,
     itemDamage: damage,
+    nbtData: nbtData,
   };
 }
 
 function writeItemNBT(writer, item) {
-  const PacketWriter = require("../PacketWriter");
+  const PacketWriter = require("../packetwriter");
 
   let customName = null;
+  let storedEnchantments = null;
 
-  if (item.nbtData && item.nbtData.value && item.nbtData.value.display) {
-    const display = item.nbtData.value.display.value;
-    if (display.Name) {
-      customName = display.Name.value;
-      try {
-        const parsed = JSON.parse(customName);
-        if (parsed.text) {
-          customName = parsed.text;
-        } else if (typeof parsed === "string") {
-          customName = parsed;
+  if (item.nbtData && item.nbtData.value) {
+    if (item.nbtData.value.display) {
+      const display = item.nbtData.value.display.value;
+      if (display.Name) {
+        customName = display.Name.value;
+        try {
+          const parsed = JSON.parse(customName);
+          if (parsed.text) {
+            customName = parsed.text;
+          } else if (typeof parsed === "string") {
+            customName = parsed;
+          }
+        } catch (err) {
+          /* do nothing */
         }
-      } catch (err) {
-        /* do nothing */
       }
+    }
+
+    if (item.nbtData.value.StoredEnchantments) {
+      storedEnchantments = item.nbtData.value.StoredEnchantments.value.value;
     }
   }
 
-  if (!customName) {
+  if (!customName && !storedEnchantments) {
     writer.writeShort(-1);
     return;
   }
@@ -87,14 +105,31 @@ function writeItemNBT(writer, item) {
   nbtWriter.writeByte(10);
   nbtWriter.writeUTF("");
 
-  nbtWriter.writeByte(10);
-  nbtWriter.writeUTF("display");
+  if (customName) {
+    nbtWriter.writeByte(10);
+    nbtWriter.writeUTF("display");
+    nbtWriter.writeByte(8);
+    nbtWriter.writeUTF("Name");
+    nbtWriter.writeUTF(customName);
+    nbtWriter.writeByte(0);
+  }
 
-  nbtWriter.writeByte(8);
-  nbtWriter.writeUTF("Name");
-  nbtWriter.writeUTF(customName);
+  if (storedEnchantments) {
+    nbtWriter.writeByte(9);
+    nbtWriter.writeUTF("StoredEnchantments");
+    nbtWriter.writeByte(10);
+    nbtWriter.writeInt(storedEnchantments.length);
 
-  nbtWriter.writeByte(0);
+    for (const ench of storedEnchantments) {
+      nbtWriter.writeByte(2);
+      nbtWriter.writeUTF("id");
+      nbtWriter.writeShort(ench.id.value);
+      nbtWriter.writeByte(2);
+      nbtWriter.writeUTF("lvl");
+      nbtWriter.writeShort(ench.lvl.value);
+      nbtWriter.writeByte(0);
+    }
+  }
 
   nbtWriter.writeByte(0);
 
@@ -157,3 +192,4 @@ module.exports = {
   writeItemNBT,
   writeItem,
 };
+/* --------------------------------------------------------------- */

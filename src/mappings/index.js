@@ -1,6 +1,9 @@
-const { createEntityTypeMapping } = require("./entityMapping");
-const { createItemMapping } = require("./itemMapping");
-const { createBlockMapping } = require("./blockMapping");
+/* --------------------------------------------------------------- */
+/*                              index.js                           */
+/* --------------------------------------------------------------- */
+const { createEntityTypeMapping } = require("./entitymapping");
+const { createItemMapping } = require("./itemmapping");
+const { createBlockMapping } = require("./blockmapping");
 const {
   mapJavaBlockToLCE,
   mapJavaParticleToLCE,
@@ -19,3 +22,4 @@ module.exports = {
   mapLCEItemToJava,
   mapLCEBlockToJava,
 };
+/* --------------------------------------------------------------- */

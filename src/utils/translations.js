@@ -1,3 +1,6 @@
+/* --------------------------------------------------------------- */
+/*                        translations.js                          */
+/* --------------------------------------------------------------- */
 function getTranslation(key, args = []) {
   const translations = {};
 
@@ -13,3 +16,4 @@ function getTranslation(key, args = []) {
 }
 
 module.exports = { getTranslation };
+/* --------------------------------------------------------------- */

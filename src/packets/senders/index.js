@@ -1,7 +1,10 @@
-const playerPackets = require("./playerPackets");
-const entityPackets = require("./entityPackets");
+/* --------------------------------------------------------------- */
+/*                            index.js                             */
+/* --------------------------------------------------------------- */
+const playerPackets = require("./playerpackets");
+const entityPackets = require("./entitypackets");
 const worldPackets = require("./worldPackets");
-const containerPackets = require("./containerPackets");
+const containerPackets = require("./containerpackets");
 
 module.exports = {
   ...playerPackets,
@@ -9,3 +12,4 @@ module.exports = {
   ...worldPackets,
   ...containerPackets,
 };
+/* --------------------------------------------------------------- */

@@ -1,4 +1,7 @@
-const PacketWriter = require("../../PacketWriter");
+/* --------------------------------------------------------------- */
+/*                        entitypackets.js                         */
+/* --------------------------------------------------------------- */
+const PacketWriter = require("../../packetwriter");
 
 function sendAddMobPacket(proxy, client, entityInfo) {
   const entityKey = `${entityInfo.javaEntityId}`;
@@ -542,3 +545,4 @@ module.exports = {
   sendUpdateAttributesPacket,
   sendSetEntityLinkPacket,
 };
+/* --------------------------------------------------------------- */

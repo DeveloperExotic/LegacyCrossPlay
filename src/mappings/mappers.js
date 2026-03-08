@@ -1,4 +1,7 @@
-﻿function mapJavaBlockToLCE(javaBlockId, javaBlockMapping) {
+﻿/* --------------------------------------------------------------- */
+/*                            mappers.js                           */
+/* --------------------------------------------------------------- */
+function mapJavaBlockToLCE(javaBlockId, javaBlockMapping) {
   if (javaBlockMapping[javaBlockId] !== undefined) {
     return javaBlockMapping[javaBlockId];
   }
@@ -119,3 +122,4 @@ module.exports = {
   mapLCEItemToJava,
   mapLCEBlockToJava,
 };
+/* --------------------------------------------------------------- */

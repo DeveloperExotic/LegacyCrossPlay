@@ -1,3 +1,6 @@
+/* --------------------------------------------------------------- */
+/*                           idmappers.js                          */
+/* --------------------------------------------------------------- */
 const { mapJavaBlockToLCE: mapBlockId } = require("./mappers");
 
 function mapJavaEntityIdToLce(client, javaEntityId) {
@@ -25,3 +28,4 @@ module.exports = {
   mapJavaBlockToLCE,
   mapJavaParticleToLCE,
 };
+/* --------------------------------------------------------------- */

@@ -1,4 +1,7 @@
-﻿function createEntityTypeMapping() {
+﻿/* --------------------------------------------------------------- */
+/*                         entitymapping.js                        */
+/* --------------------------------------------------------------- */
+function createEntityTypeMapping() {
   return {
     //monsters
     Creeper: 50,
@@ -65,3 +68,4 @@
 }
 
 module.exports = { createEntityTypeMapping };
+/* --------------------------------------------------------------- */

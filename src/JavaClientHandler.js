@@ -1,3 +1,6 @@
+/* --------------------------------------------------------------- */
+/*                      javaclienthandler.js                       */
+/* --------------------------------------------------------------- */
 const mc = require("minecraft-protocol");
 const {
   JAVA_SERVER_HOST,
@@ -5,9 +8,9 @@ const {
   USE_LEGACY_USERNAME,
   CUSTOM_USERNAME,
 } = require("../constants");
-const PacketWriter = require("./PacketWriter");
+const PacketWriter = require("./packetwriter");
 const { mapJavaItemToLCE, mapJavaBlockToLCE } = require("./mappings");
-const { mapJavaSoundToLCE } = require("./mappings/soundMapping");
+const { mapJavaSoundToLCE } = require("./mappings/soundmapping");
 const { parseChatComponent } = require("./utils/chat");
 const { countSetBits, compressRLE } = require("./utils/chunk");
 const zlib = require("zlib");
@@ -572,7 +575,8 @@ function connectToJavaServer(proxy, client) {
 
   javaClient.on("custom_payload", (packet) => {
     if (client.state === "play" && packet.channel === "MC|TrList") {
-      proxy.sendVillagerTrades(client, packet.data);
+      const windowId = client.openWindowId || 1;
+      proxy.sendVillagerTrades(client, windowId, packet.data);
     }
   });
 
@@ -2074,3 +2078,4 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
 }
 
 module.exports = connectToJavaServer;
+/* --------------------------------------------------------------- */

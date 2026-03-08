@@ -1,4 +1,7 @@
-﻿function getTranslation(key, args = []) {
+﻿/* --------------------------------------------------------------- */
+/*                            chat.js                              */
+/* --------------------------------------------------------------- */
+function getTranslation(key, args = []) {
   const translations = {
     "chat.type.text": (args) => `<${args[0]}> ${args[1]}`,
     "chat.type.announcement": (args) => `[${args[0]}] ${args[1]}`,
@@ -521,3 +524,4 @@ function parseChatComponent(component) {
 }
 
 module.exports = { getTranslation, parseChatComponent };
+/* --------------------------------------------------------------- */

@@ -1,4 +1,7 @@
-﻿const dgram = require("dgram");
+﻿/* --------------------------------------------------------------- */
+/*                          lceproxy.js                            */
+/* --------------------------------------------------------------- */
+const dgram = require("dgram");
 const net = require("net");
 const mc = require("minecraft-protocol");
 const {
@@ -9,9 +12,9 @@ const {
   CUSTOM_USERNAME,
   PROXY_NAME,
 } = require("../constants");
-const PacketWriter = require("./PacketWriter");
-const PacketReader = require("./PacketReader");
-const LANBroadcast = require("./LANBroadcast");
+const PacketWriter = require("./packetwriter");
+const PacketReader = require("./packetreader");
+const LANBroadcast = require("./lanbroadcast");
 const {
   createEntityTypeMapping,
   createItemMapping,
@@ -23,7 +26,7 @@ const { normalizeYaw } = require("./utils/rotation");
 const { readItemInstance } = require("./utils/items");
 const { readItem, writeItem, writeItemNBT } = require("./utils/items");
 const packetSenders = require("./packets/senders");
-const connectToJavaServerFunc = require("./JavaClientHandler");
+const connectToJavaServerFunc = require("./javaclienthandler");
 
 //please stfu node
 process.removeAllListeners("warning");
@@ -1007,6 +1010,10 @@ class LCEProxy {
 
   sendContainerOpenPacket(client, packet) {
     return packetSenders.sendContainerOpenPacket(this, client, packet);
+  }
+
+  sendVillagerTrades(client, windowId, packetData) {
+    return packetSenders.sendVillagerTrades(this, client, windowId, packetData);
   }
 
   //debug
@@ -2172,7 +2179,7 @@ class LCEProxy {
     const uid = reader.readShort();
     const clickType = reader.readByte();
 
-    const item = this.readItem(reader);
+    const item = this.readItemWithNBT(reader);
 
     //0=Normal click
     //1=Shift click
@@ -2191,6 +2198,9 @@ class LCEProxy {
           itemCount: item.itemCount,
           itemDamage: item.itemDamage,
         };
+        if (item.nbt) {
+          javaItem.nbtData = this.convertLCENBTToJava(item.nbt);
+        }
       }
     }
 
@@ -2218,7 +2228,7 @@ class LCEProxy {
   handleSetCreativeModeSlot(client, data) {
     const reader = new PacketReader(data.slice(1));
     const slotNum = reader.readShort();
-    const item = this.readItem(reader);
+    const item = this.readItemWithNBT(reader);
 
     let javaItem = null;
     if (item) {
@@ -2227,8 +2237,11 @@ class LCEProxy {
         javaItem = {
           blockId: javaItemId,
           itemCount: item.itemCount,
-          itemDamage: item.itemDamage,
+          itemDamage: 0,
         };
+        if (item.nbt) {
+          javaItem.nbtData = this.convertLCENBTToJava(item.nbt);
+        }
       }
     }
 
@@ -2359,6 +2372,90 @@ class LCEProxy {
     return readItem(reader);
   }
 
+  readItemWithNBT(reader) {
+    const itemId = reader.readShort();
+    if (itemId === -1) {
+      return null;
+    }
+    const count = reader.readByte();
+    const damage = reader.readShort();
+    
+    if (reader.offset + 2 > reader.buffer.length) {
+      return {
+        blockId: itemId,
+        itemCount: count,
+        itemDamage: damage,
+        nbt: null
+      };
+    }
+    
+    const nbtLength = reader.readShort();
+    
+    let nbt = null;
+    if (nbtLength > 0 && reader.offset + nbtLength <= reader.buffer.length) {
+      const nbtBytes = reader.readBytes(nbtLength);
+      nbt = nbtBytes;
+    }
+    
+    return {
+      blockId: itemId,
+      itemCount: count,
+      itemDamage: damage,
+      nbt: nbt
+    };
+  }
+
+  convertLCENBTToJava(nbtBytes) {
+    try {
+      const zlib = require('zlib');
+      const decompressed = zlib.gunzipSync(nbtBytes);
+      const nbtReader = new PacketReader(decompressed);
+      const rootTag = this.readNBTTag(nbtReader);
+      return rootTag;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  readNBTTag(reader) {
+    const type = reader.readByte();
+    if (type === 0) return null;
+    const name = reader.readUTF();
+    return this.readNBTPayload(reader, type, name);
+  }
+
+  readNBTPayload(reader, type, name) {
+    switch (type) {
+      case 1:
+        return { type: 'byte', name, value: reader.readByte() };
+      case 2:
+        return { type: 'short', name, value: reader.readShort() };
+      case 3:
+        return { type: 'int', name, value: reader.readInt() };
+      case 8:
+        return { type: 'string', name, value: reader.readUTF() };
+      case 9:
+        const listType = reader.readByte();
+        const listSize = reader.readInt();
+        const listItems = [];
+        for (let i = 0; i < listSize; i++) {
+          listItems.push(this.readNBTPayload(reader, listType, ''));
+        }
+        return { type: 'list', name, value: { type: listType, value: listItems } };
+      case 10:
+        const compound = {};
+        while (true) {
+          const tagType = reader.readByte();
+          if (tagType === 0) break;
+          const tagName = reader.readUTF();
+          compound[tagName] = this.readNBTPayload(reader, tagType, tagName);
+        }
+        return { type: 'compound', name, value: compound };
+      default:
+        return null;
+    }
+  }
+
   writeItemNBT(writer, item) {
     return writeItemNBT(writer, item);
   }
@@ -2452,3 +2549,4 @@ class LCEProxy {
 }
 
 module.exports = LCEProxy;
+/* --------------------------------------------------------------- */

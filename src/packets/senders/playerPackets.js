@@ -1,4 +1,7 @@
-const PacketWriter = require("../../PacketWriter");
+/* --------------------------------------------------------------- */
+/*                        playerpackets.js                         */
+/* --------------------------------------------------------------- */
+const PacketWriter = require("../../packetwriter");
 
 function sendMovePlayerPacket(proxy, client, x, y, z, yaw, pitch) {
   const lceY = y + 1.65;
@@ -113,3 +116,4 @@ module.exports = {
   sendRotateHeadPacket,
   sendChatPacket,
 };
+/* --------------------------------------------------------------- */
