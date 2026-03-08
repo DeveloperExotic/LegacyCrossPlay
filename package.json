@@ -1,0 +1,20 @@
+{
+  "name": "lce-proxy",
+  "version": "1.0.0",
+  "description": "Minecraft Legacy Console Edition LAN Proxy",
+  "main": "proxy.js",
+  "scripts": {
+    "start": "node proxy.js"
+  },
+  "keywords": [
+    "minecraft",
+    "lce",
+    "proxy",
+    "lan"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "minecraft-protocol": "^1.64.0"
+  }
+}
