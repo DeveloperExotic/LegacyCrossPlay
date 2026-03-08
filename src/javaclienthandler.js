@@ -42,6 +42,9 @@ function connectToJavaServer(proxy, client) {
       client.javaClient = null;
       if (client.socket && !client.socket.destroyed) {
         try {
+          const writer = new PacketWriter();
+          writer.writeInt(20);
+          proxy.sendPacket(client, 0xff, writer.toBuffer());
           client.socket.destroy();
         } catch (err) {
           /* do nothing */
@@ -50,9 +53,31 @@ function connectToJavaServer(proxy, client) {
     }
   });
 
+  javaClient.on("kick_disconnect", (packet) => {
+    if (client.state === "play") {
+      let reason = 10;
+      if (packet.reason) {
+        const reasonText = typeof packet.reason === "string" ? packet.reason : JSON.stringify(packet.reason);
+        const lowerReason = reasonText.toLowerCase();
+        if (lowerReason.includes("ban")) {
+          reason = 10;
+        } else if (lowerReason.includes("kick")) {
+          reason = 10;
+        } else if (lowerReason.includes("timeout") || lowerReason.includes("timed out")) {
+          reason = 20;
+        } else if (lowerReason.includes("full")) {
+          reason = 23;
+        } else {
+          reason = 10;
+        }
+      }
+      proxy.disconnectClient(client, reason);
+    }
+  });
+
   javaClient.on("end", () => {
     if (proxy.clients.indexOf(client) > -1 && !client._removing) {
-      proxy.removeClient(client);
+      proxy.disconnectClient(client, 2);
     }
   });
 
@@ -223,15 +248,29 @@ function connectToJavaServer(proxy, client) {
   javaClient.on("craft_progress_bar", (packet) => {
     if (client.state === "play") {
       const windowId = packet.windowId;
-      const property = packet.property;
+      let property = packet.property;
       const value = packet.value;
 
-      const writer = new PacketWriter();
-      writer.writeByte(windowId & 0xff);
-      writer.writeShort(property);
-      writer.writeShort(value);
+      if (windowId === client.openWindowId) {
+        let lceProperty = property;
 
-      proxy.sendPacket(client, 0x69, writer.toBuffer());
+        if (client.openWindowType === "minecraft:furnace") {
+          if (property === 0) {
+            lceProperty = 1;
+          } else if (property === 1) {
+            lceProperty = 2;
+          } else if (property === 2) {
+            lceProperty = 0;
+          }
+        }
+
+        const writer = new PacketWriter();
+        writer.writeByte(windowId & 0xff);
+        writer.writeShort(lceProperty & 0xffff);
+        writer.writeShort(value & 0xffff);
+
+        proxy.sendPacket(client, 0x69, writer.toBuffer());
+      }
     }
   });
 

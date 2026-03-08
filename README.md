@@ -128,7 +128,7 @@
 ## Disconnections
 
 - [x] Our LCE client disconnects
-- [ ] Our java player disconnects
+- [x] Our java player disconnects
 
 ---
 
@@ -179,8 +179,8 @@
 # UI
 
 - [ ] Crafting _(Hard to implement, may require server plugin)_
-- [ ] Brewing stand
-- [ ] Furnace
+- [x] Brewing stand
+- [x] Furnace
 - [x] Villager trading
   - [ ] Accept trade _(Hard to implement, may require server plugin)_
 - [x] Anvils

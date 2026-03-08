@@ -2492,6 +2492,19 @@ class LCEProxy {
     const success = client.socket.write(fullPacket);
   }
 
+  disconnectClient(client, reason = 0) {
+    if (client.socket && !client.socket.destroyed) {
+      try {
+        const writer = new PacketWriter();
+        writer.writeInt(reason);
+        this.sendPacket(client, 0xff, writer.toBuffer());
+      } catch (err) {
+        /* do nothing */
+      }
+    }
+    this.removeClient(client);
+  }
+
   removeClient(client) {
     if (client._removing) {
       return;
@@ -2564,7 +2577,7 @@ class LCEProxy {
     }
 
     this.clients.forEach((client) => {
-      client.socket.end();
+      this.disconnectClient(client, 2);
     });
   }
 }
