@@ -1,4 +1,5 @@
 # Legacy Cross Play
+# I AM AWARE THE PROJECT IS BROKEN RIGHT NOW, THE CLIENT UPDATED AND IM WORNING ON A FIX.
 
 **This project allows Legacy Console Edition clients to join a vanilla 1.8 Java Edition server!**
 ![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/lce1.png)
