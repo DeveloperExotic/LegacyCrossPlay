@@ -1,8 +1,8 @@
 # Legacy Cross Play
 
 **This project allows Legacy Console Edition clients to join a vanilla 1.8 Java Edition server!**
-![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/screenshot1.png)
-![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/screenshot2.png)
+![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/lce1.png)
+![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/lce2.png)
 
 # How to Install
 
@@ -178,10 +178,10 @@
 
 # UI
 
-- [ ] Crafting _(Hard to implement, may require server plugin)_
+- [ ] Crafting _(Hard to implement, coming soon)_
 - [x] Brewing stand
 - [x] Furnace
 - [x] Villager trading
-  - [ ] Accept trade _(Hard to implement, may require server plugin)_
+  - [ ] Accept trade _(Hard to implement, coming soon)_
 - [x] Anvils
 - [x] Chests
