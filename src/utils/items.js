@@ -1,6 +1,9 @@
 /* --------------------------------------------------------------- */
 /*                           items.js                              */
 /* --------------------------------------------------------------- */
+/**
+ * @param {import("../packetreader.js")} reader
+ */
 function readSlot(reader) {
   const id = reader.readShort();
   if (id === -1 || id === 0) {
@@ -21,6 +24,9 @@ function readSlot(reader) {
   };
 }
 
+/**
+ * @param {import("../packetreader.js")} reader
+ */
 function readItemInstance(reader) {
   const id = reader.readShort();
   if (id === -1 || id === 0) {
@@ -41,6 +47,9 @@ function readItemInstance(reader) {
   };
 }
 
+/**
+ * @param {import("../packetreader.js")} reader
+ */
 function readItem(reader) {
   const itemId = reader.readShort();
 
@@ -66,6 +75,10 @@ function readItem(reader) {
   };
 }
 
+/**
+ * @param {import("../packetwriter.js")} writer
+ * @param item
+ */
 function writeItemNBT(writer, item) {
   const PacketWriter = require("../packetwriter");
 
@@ -138,6 +151,11 @@ function writeItemNBT(writer, item) {
   writer.writeBytes(nbtData);
 }
 
+/**
+ * @param {import("../packetwriter.js")} writer
+ * @param item
+ * @param mapJavaItemToLCE
+ */
 function writeItem(writer, item, mapJavaItemToLCE) {
   if (!item || item.blockId === -1 || item.itemId === -1 || item === null) {
     writer.writeShort(-1);

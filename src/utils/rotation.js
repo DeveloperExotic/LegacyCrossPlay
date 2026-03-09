@@ -1,6 +1,10 @@
 /* --------------------------------------------------------------- */
 /*                          rotation.js                            */
 /* --------------------------------------------------------------- */
+/**
+ * @param {number} yaw
+ * @returns {number}
+ */
 function normalizeYaw(yaw) {
   let normalized = yaw % 360;
   if (normalized > 180) {

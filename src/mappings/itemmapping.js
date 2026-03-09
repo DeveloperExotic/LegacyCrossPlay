@@ -1,6 +1,9 @@
 ﻿/* --------------------------------------------------------------- */
 /*                         itemmapping.js                          */
 /* --------------------------------------------------------------- */
+/**
+ * @returns {Record<number, number>}
+ */
 function createItemMapping() {
   return {
     256: 256, //iron_shovel

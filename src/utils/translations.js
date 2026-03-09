@@ -1,7 +1,12 @@
 /* --------------------------------------------------------------- */
 /*                        translations.js                          */
 /* --------------------------------------------------------------- */
+/**
+ * @param {string} key
+ * @param {unknown[]} args
+ */
 function getTranslation(key, args = []) {
+  /** @type {Record<string, (...args: unknown[]) => string>} */
   const translations = {};
 
   const translationFunc = translations[key];

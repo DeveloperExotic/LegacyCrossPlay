@@ -1,6 +1,10 @@
 /* --------------------------------------------------------------- */
 /*                            utils.js                             */
 /* --------------------------------------------------------------- */
+/**
+ * @param {number} value
+ * @returns {Buffer<ArrayBuffer>}
+ */
 function encodeVarInt(value) {
   const bytes = [];
   do {

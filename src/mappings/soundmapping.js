@@ -1,7 +1,12 @@
 ﻿/* --------------------------------------------------------------- */
 /*                         soundmapping.js                         */
 /* --------------------------------------------------------------- */
+/**
+ * @param {string} soundName 
+ * @returns {number}
+ */
 function mapJavaSoundToLCE(soundName) {
+  /** @type {Record<string, number>} */
   const soundMap = {
     "mob.chicken.say": 0,
     "mob.chicken": 0,

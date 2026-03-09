@@ -17,5 +17,9 @@
   "dependencies": {
     "minecraft-protocol": "^1.64.0",
     "prismarine-auth": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "typescript": "^5.9.3"
   }
 }

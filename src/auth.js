@@ -6,6 +6,7 @@ const AUTH_CACHE_DIR = path.join(__dirname, "..", ".auth_cache");
 
 class MicrosoftAuth {
   constructor() {
+    /** @type {Authflow | null} */
     this.authflow = null;
     this.authenticated = false;
     this.username = null;

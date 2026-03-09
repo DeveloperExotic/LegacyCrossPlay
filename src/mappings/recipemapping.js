@@ -3,6 +3,7 @@
 
 //unfinised as of 3/9/2026 (MM/DD/YY)
 
+/** @type {Record<number, string[]>} */
 module.exports = {
   //page 1
   0: [
