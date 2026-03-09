@@ -6,7 +6,7 @@
 
 # How to Install
 
-**Code modifications to the client source code is required for multiplayer to function properly**
+**Code modifications, or server plugins ARE NOT required!**
 
 - Install [NodeJS](https://nodejs.org/en/download), you may need to restart your computer after
 - Start a localhost Java Edition server running on port 25564, and in offline mode (you can edit these in `server.properties`)
