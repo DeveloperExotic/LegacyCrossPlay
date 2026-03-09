@@ -15,9 +15,7 @@
 
 # Known issues, will be fixed
 
-- You're unable to dismount while riding
 - Chunk lighting is always lit
-- Death animation plays when a Java player leaves
 - You're unable to craft in survival mode
 - You're unable to accept villager trades
 
