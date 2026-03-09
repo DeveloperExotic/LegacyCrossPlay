@@ -5,9 +5,11 @@ const mc = require("minecraft-protocol");
 const {
   JAVA_SERVER_HOST,
   JAVA_SERVER_PORT,
+  USE_JAVA_ACCOUNT,
   USE_LEGACY_USERNAME,
   CUSTOM_USERNAME,
 } = require("../constants");
+const msAuth = require("./auth");
 const PacketWriter = require("./packetwriter");
 const { mapJavaItemToLCE, mapJavaBlockToLCE } = require("./mappings");
 const { mapJavaSoundToLCE } = require("./mappings/soundmapping");
@@ -15,8 +17,8 @@ const { parseChatComponent } = require("./utils/chat");
 const { countSetBits, compressRLE } = require("./utils/chunk");
 const zlib = require("zlib");
 
-function connectToJavaServer(proxy, client) {
-  const javaClient = mc.createClient({
+async function connectToJavaServer(proxy, client) {
+  let authConfig = {
     host: JAVA_SERVER_HOST,
     port: JAVA_SERVER_PORT,
     username: !USE_LEGACY_USERNAME
@@ -24,7 +26,30 @@ function connectToJavaServer(proxy, client) {
       : client.username || "undefined",
     auth: "offline",
     version: "1.8.9",
-  });
+  };
+
+  if (USE_JAVA_ACCOUNT) {
+    if (msAuth.isAuthenticated()) {
+      authConfig = {
+        host: JAVA_SERVER_HOST,
+        port: JAVA_SERVER_PORT,
+        username: msAuth.username,
+        session: {
+          accessToken: msAuth.accessToken,
+          selectedProfile: {
+            id: msAuth.uuid,
+            name: msAuth.username,
+          },
+        },
+        auth: "microsoft",
+        version: "1.8.9",
+      };
+    } else {
+      console.error("Not authenticated! This should not happen.");
+    }
+  }
+
+  const javaClient = mc.createClient(authConfig);
 
   client.javaClient = javaClient;
   client._lastJavaPackets = [];
@@ -1000,138 +1025,38 @@ function connectToJavaServer(proxy, client) {
   });
 
   javaClient.on("spawn_entity", (packet) => {
-    if (client.state === "play") {
-      let lceEntityType = packet.type;
-
-      if (packet.type === 10) {
-        lceEntityType = 10;
-        const minecartSubtype = packet.intField || 0;
-        const minecartTypes = [
-          "Rideable",
-          "Chest",
-          "Furnace",
-          "TNT",
-          "Spawner",
-          "Hopper",
-        ];
-        const minecartType = minecartTypes[minecartSubtype] || "Unknown";
-      }
-
-      let fallingBlockData = null;
-      if (packet.type === 70) {
-        const javaBlockId = packet.intField & 0xfff;
-        const metadata = (packet.intField >> 12) & 0xf;
-
-        const lceBlockId = proxy.mapJavaBlockToLCE(javaBlockId);
-
-        fallingBlockData = lceBlockId | (metadata << 16);
-      }
-
-      if (lceEntityType < 0 || lceEntityType > 200) {
-        return;
-      }
-
-      const lceEntityId = proxy.mapJavaEntityIdToLce(client, packet.entityId);
-
-      let velocityX = 0,
-        velocityY = 0,
-        velocityZ = 0;
-      if (packet.objectData) {
-        velocityX = packet.objectData.velocityX || 0;
-        velocityY = packet.objectData.velocityY || 0;
-        velocityZ = packet.objectData.velocityZ || 0;
-      }
-
-      let arrowData = -1;
-      if (lceEntityType === 60) {
-        arrowData = lceEntityId;
-        const javaYaw = (packet.yaw / 256) * 360;
-        const javaPitch = (packet.pitch / 256) * 360;
-      }
-
-      let fishingHookData = -1;
-      if (lceEntityType === 90) {
-        const javaOwnerId = packet.intField || packet.entityId;
-
-        if (javaOwnerId === client.javaPlayerEntityId) {
-          fishingHookData = client.lcePlayerEntityId || 1;
-        } else {
-          fishingHookData =
-            proxy.mapJavaEntityIdToLce(client, javaOwnerId) || lceEntityId;
+    try {
+      if (client.state === "play") {
+        if (
+          !packet ||
+          packet.entityId === undefined ||
+          packet.type === undefined
+        ) {
+          return;
         }
-      }
 
-      const entityInfo = {
-        entityId: lceEntityId,
-        javaEntityId: packet.entityId,
-        type: lceEntityType,
-        x: packet.x / 32,
-        y: packet.y / 32,
-        z: packet.z / 32,
-        yaw: lceEntityType === 60 ? 0 : (packet.yaw / 256) * 360,
-        pitch: lceEntityType === 60 ? 0 : (packet.pitch / 256) * 360,
-        data:
-          lceEntityType === 2
-            ? 1
-            : lceEntityType === 60
-              ? arrowData
-              : lceEntityType === 90
-                ? fishingHookData
-                : lceEntityType === 63 || lceEntityType === 64
-                  ? 0
-                  : lceEntityType === 70
-                    ? fallingBlockData
-                    : lceEntityType === 10
-                      ? packet.intField || 0
-                      : packet.objectData?.intField || -1,
-        velocityX: velocityX,
-        velocityY: velocityY,
-        velocityZ: velocityZ,
-      };
-
-      entityInfo.spawnTime = Date.now();
-
-      client.javaEntities.set(packet.entityId, entityInfo);
-
-      try {
-        proxy.sendAddEntityPacket(client, entityInfo);
-      } catch (err) {
-        return;
-      }
-
-      if (lceEntityType === 2) {
-        entityInfo.waitingForItemData = true;
-      }
-
-      if (lceEntityType === 10) {
-        const minecartMetadata = [];
-        const minecartSubtype = packet.intField || 0;
-        let displayBlockId = 0;
-        switch (minecartSubtype) {
-          case 1:
-            displayBlockId = 54;
-            break; //chest
-          case 2:
-            displayBlockId = 61;
-            break; //furnace
-          case 3:
-            displayBlockId = 46;
-            break; //tNT
-          case 5:
-            displayBlockId = 154;
-            break; //hopper
-          case 4:
-            displayBlockId = 52;
-            break; //spawner
-          default:
-            displayBlockId = 0;
-            break; //no display
+        if (
+          !Number.isFinite(packet.x) ||
+          !Number.isFinite(packet.y) ||
+          !Number.isFinite(packet.z)
+        ) {
+          return;
         }
-        if (displayBlockId > 0) {
-          minecartMetadata.push({ key: 20, type: 2, value: displayBlockId });
-          minecartMetadata.push({ key: 21, type: 2, value: 6 });
-          minecartMetadata.push({ key: 22, type: 0, value: 1 });
-          proxy.sendEntityMetadataPacket(client, entityInfo, minecartMetadata);
+
+        if (!Number.isFinite(packet.yaw) || !Number.isFinite(packet.pitch)) {
+          return;
+        }
+
+        let lceEntityType = packet.type;
+
+        const unsupportedEntityTypes = [78];
+        if (unsupportedEntityTypes.includes(lceEntityType)) {
+          return;
+        }
+
+        if (packet.type === 10) {
+          lceEntityType = 10;
+          const minecartSubtype = packet.intField || 0;
           const minecartTypes = [
             "Rideable",
             "Chest",
@@ -1140,9 +1065,142 @@ function connectToJavaServer(proxy, client) {
             "Spawner",
             "Hopper",
           ];
-          const cartType = minecartTypes[minecartSubtype] || "Unknown";
+          const minecartType = minecartTypes[minecartSubtype] || "Unknown";
+        }
+
+        let fallingBlockData = null;
+        if (packet.type === 70) {
+          const javaBlockId = packet.intField & 0xfff;
+          const metadata = (packet.intField >> 12) & 0xf;
+
+          const lceBlockId = proxy.mapJavaBlockToLCE(javaBlockId);
+
+          fallingBlockData = lceBlockId | (metadata << 16);
+        }
+
+        if (lceEntityType < 0 || lceEntityType > 200) {
+          return;
+        }
+
+        const lceEntityId = proxy.mapJavaEntityIdToLce(client, packet.entityId);
+
+        let velocityX = 0,
+          velocityY = 0,
+          velocityZ = 0;
+        if (packet.objectData) {
+          velocityX = packet.objectData.velocityX || 0;
+          velocityY = packet.objectData.velocityY || 0;
+          velocityZ = packet.objectData.velocityZ || 0;
+        }
+
+        let arrowData = -1;
+        if (lceEntityType === 60) {
+          arrowData = lceEntityId;
+          const javaYaw = (packet.yaw / 256) * 360;
+          const javaPitch = (packet.pitch / 256) * 360;
+        }
+
+        let fishingHookData = -1;
+        if (lceEntityType === 90) {
+          const javaOwnerId = packet.intField || packet.entityId;
+
+          if (javaOwnerId === client.javaPlayerEntityId) {
+            fishingHookData = client.lcePlayerEntityId || 1;
+          } else {
+            fishingHookData =
+              proxy.mapJavaEntityIdToLce(client, javaOwnerId) || lceEntityId;
+          }
+        }
+
+        const entityInfo = {
+          entityId: lceEntityId,
+          javaEntityId: packet.entityId,
+          type: lceEntityType,
+          x: packet.x / 32,
+          y: packet.y / 32,
+          z: packet.z / 32,
+          yaw: lceEntityType === 60 ? 0 : (packet.yaw / 256) * 360,
+          pitch: lceEntityType === 60 ? 0 : (packet.pitch / 256) * 360,
+          data:
+            lceEntityType === 2
+              ? 1
+              : lceEntityType === 60
+                ? arrowData
+                : lceEntityType === 90
+                  ? fishingHookData
+                  : lceEntityType === 63 || lceEntityType === 64
+                    ? 0
+                    : lceEntityType === 70
+                      ? fallingBlockData
+                      : lceEntityType === 10
+                        ? packet.intField || 0
+                        : packet.objectData?.intField || -1,
+          velocityX: velocityX,
+          velocityY: velocityY,
+          velocityZ: velocityZ,
+        };
+
+        entityInfo.spawnTime = Date.now();
+
+        client.javaEntities.set(packet.entityId, entityInfo);
+
+        try {
+          proxy.sendAddEntityPacket(client, entityInfo);
+        } catch (err) {
+          return;
+        }
+
+        if (lceEntityType === 2) {
+          entityInfo.waitingForItemData = true;
+        }
+
+        if (lceEntityType === 10) {
+          const minecartMetadata = [];
+          const minecartSubtype = packet.intField || 0;
+          let displayBlockId = 0;
+          switch (minecartSubtype) {
+            case 1:
+              displayBlockId = 54;
+              break;
+            case 2:
+              displayBlockId = 61;
+              break;
+            case 3:
+              displayBlockId = 46;
+              break;
+            case 5:
+              displayBlockId = 154;
+              break;
+            case 4:
+              displayBlockId = 52;
+              break;
+            default:
+              displayBlockId = 0;
+              break; //no display
+          }
+          if (displayBlockId > 0) {
+            minecartMetadata.push({ key: 20, type: 2, value: displayBlockId });
+            minecartMetadata.push({ key: 21, type: 2, value: 6 });
+            minecartMetadata.push({ key: 22, type: 0, value: 1 });
+            proxy.sendEntityMetadataPacket(
+              client,
+              entityInfo,
+              minecartMetadata,
+            );
+            const minecartTypes = [
+              "Rideable",
+              "Chest",
+              "Furnace",
+              "TNT",
+              "Spawner",
+              "Hopper",
+            ];
+            const cartType = minecartTypes[minecartSubtype] || "Unknown";
+          }
         }
       }
+    } catch (err) {
+      /* do nothing */
     }
   });
 
@@ -1514,114 +1572,123 @@ function connectToJavaServer(proxy, client) {
   });
 
   javaClient.on("entity_metadata", (packet) => {
-    if (client.state === "play") {
-      let isPlayer = false;
-      for (const [uuid, player] of client.javaPlayers) {
-        if (player.javaEntityId === packet.entityId && player.spawned) {
-          //0x01=on fire, 0x02=sneaking, 0x04=unused, 0x08=sprinting, 0x10=eating, 0x20=invisible
-          if (packet.metadata && packet.metadata.length > 0) {
-            const sharedFlags = packet.metadata.find(
-              (m) => m.key === 0 && m.type === 0,
-            );
-            if (sharedFlags !== undefined) {
-              const flags = sharedFlags.value & 0xff;
-
-              const metaWriter = new PacketWriter();
-              metaWriter.writeInt(player.entityId);
-              metaWriter.writeByte((0 << 5) | 0);
-              metaWriter.writeByte(flags);
-              metaWriter.writeByte(0x7f);
-              proxy.sendPacket(client, 0x28, metaWriter.toBuffer());
-            }
-          }
-          isPlayer = true;
-          break;
-        }
-      }
-
-      if (!isPlayer && client.javaEntities.has(packet.entityId)) {
-        const entity = client.javaEntities.get(packet.entityId);
-        entity.metadata = packet.metadata || [];
-
-        if (entity.type === 90 && packet.metadata) {
-          const hookedEntityMeta = packet.metadata.find((m) => m.key === 6);
-          if (hookedEntityMeta) {
-            if (hookedEntityMeta.value > 0) {
-              const hookedJavaEntityId = hookedEntityMeta.value;
-              const hookedLceEntityId = proxy.mapJavaEntityIdToLce(
-                client,
-                hookedJavaEntityId,
+    try {
+      if (client.state === "play") {
+        let isPlayer = false;
+        for (const [uuid, player] of client.javaPlayers) {
+          if (player.javaEntityId === packet.entityId && player.spawned) {
+            //0x01=on fire, 0x02=sneaking, 0x04=unused, 0x08=sprinting, 0x10=eating, 0x20=invisible
+            if (packet.metadata && packet.metadata.length > 0) {
+              const sharedFlags = packet.metadata.find(
+                (m) => m.key === 0 && m.type === 0,
               );
-              entity.hookedEntityId = hookedLceEntityId;
+              if (sharedFlags !== undefined) {
+                const flags = sharedFlags.value & 0xff;
+
+                const metaWriter = new PacketWriter();
+                metaWriter.writeInt(player.entityId);
+                metaWriter.writeByte((0 << 5) | 0);
+                metaWriter.writeByte(flags);
+                metaWriter.writeByte(0x7f);
+                proxy.sendPacket(client, 0x28, metaWriter.toBuffer());
+              }
             }
+            isPlayer = true;
+            break;
           }
         }
 
-        //if (entity.type === 10) {
-        //    console.log('minecart', entity.type, entity.entityId, JSON.stringify(packet.metadata));
-        //}
+        if (!isPlayer && client.javaEntities.has(packet.entityId)) {
+          const entity = client.javaEntities.get(packet.entityId);
+          entity.metadata = packet.metadata || [];
 
-        if (
-          entity.type === 2 &&
-          entity.waitingForItemData &&
-          packet.metadata &&
-          packet.metadata.length > 0
-        ) {
-          const itemMetadata = packet.metadata.find(
-            (m) => m.key === 10 && m.type === 5,
-          );
-          if (itemMetadata && itemMetadata.value) {
-            proxy.sendSetItemDataPacket(client, entity, itemMetadata.value);
-            entity.waitingForItemData = false;
-          }
-        }
-
-        const customNameMeta = packet.metadata.find(
-          (m) => m.key === 2 && m.type === 4,
-        );
-        const customNameVisibleMeta = packet.metadata.find(
-          (m) => m.key === 3 && m.type === 0,
-        );
-
-        const lceMetadata = [];
-
-        if (customNameMeta && customNameMeta.value) {
-          lceMetadata.push({
-            key: 10,
-            type: 4,
-            value: customNameMeta.value,
-          });
-        }
-
-        if (customNameVisibleMeta !== undefined) {
-          lceMetadata.push({
-            key: 11,
-            type: 0,
-            value: customNameVisibleMeta.value,
-          });
-        }
-
-        const relevantMetadata = packet.metadata.filter((m) => {
-          if (entity.type === 10) {
-            if ([20, 21, 22].includes(m.key)) {
-              return false;
+          if (entity.type === 90 && packet.metadata) {
+            const hookedEntityMeta = packet.metadata.find((m) => m.key === 6);
+            if (hookedEntityMeta) {
+              if (hookedEntityMeta.value > 0) {
+                const hookedJavaEntityId = hookedEntityMeta.value;
+                const hookedLceEntityId = proxy.mapJavaEntityIdToLce(
+                  client,
+                  hookedJavaEntityId,
+                );
+                entity.hookedEntityId = hookedLceEntityId;
+              }
             }
           }
 
-          //0=shared flags (e.g. on fire, sneaking, sprinting)
-          //12=age
-          //13=skeleton type
-          //16=villager profession or slime/magma size
-          //17=batman hanging flag - 0x01 = hanging
-          return [0, 12, 13, 16, 17].includes(m.key) && m.type !== 5;
-        });
+          //if (entity.type === 10) {
+          //    console.log('minecart', entity.type, entity.entityId, JSON.stringify(packet.metadata));
+          //}
 
-        const allMetadata = [...lceMetadata, ...relevantMetadata];
+          if (
+            entity.type === 2 &&
+            entity.waitingForItemData &&
+            packet.metadata &&
+            packet.metadata.length > 0
+          ) {
+            const itemMetadata = packet.metadata.find(
+              (m) => m.key === 10 && m.type === 5,
+            );
+            if (itemMetadata && itemMetadata.value) {
+              proxy.sendSetItemDataPacket(client, entity, itemMetadata.value);
+              entity.waitingForItemData = false;
+            }
+          }
 
-        if (allMetadata.length > 0 && entity.type !== 2) {
-          proxy.sendEntityMetadataPacket(client, entity, allMetadata);
+          const customNameMeta = packet.metadata
+            ? packet.metadata.find((m) => m && m.key === 2 && m.type === 4)
+            : undefined;
+          const customNameVisibleMeta = packet.metadata
+            ? packet.metadata.find((m) => m && m.key === 3 && m.type === 0)
+            : undefined;
+
+          const lceMetadata = [];
+
+          if (customNameMeta && customNameMeta.value) {
+            lceMetadata.push({
+              key: 10,
+              type: 4,
+              value: customNameMeta.value,
+            });
+          }
+
+          if (customNameVisibleMeta !== undefined) {
+            lceMetadata.push({
+              key: 11,
+              type: 0,
+              value: customNameVisibleMeta.value,
+            });
+          }
+
+          const relevantMetadata = packet.metadata
+            ? packet.metadata.filter((m) => {
+                if (!m || m.key === undefined || m.type === undefined) {
+                  return false;
+                }
+
+                if (entity.type === 10) {
+                  if ([20, 21, 22].includes(m.key)) {
+                    return false;
+                  }
+                }
+
+                if (m.type === 5) {
+                  return false;
+                }
+
+                return [0, 12, 13, 16, 17].includes(m.key);
+              })
+            : [];
+
+          const allMetadata = [...lceMetadata, ...relevantMetadata];
+
+          if (allMetadata.length > 0 && entity.type !== 2) {
+            proxy.sendEntityMetadataPacket(client, entity, allMetadata);
+          }
         }
       }
+    } catch (err) {
+      /* do nothing */
     }
   });
 

@@ -15,6 +15,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "minecraft-protocol": "^1.64.0"
+    "minecraft-protocol": "^1.64.0",
+    "prismarine-auth": "^2.7.0"
   }
 }

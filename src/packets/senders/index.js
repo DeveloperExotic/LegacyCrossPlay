@@ -3,7 +3,7 @@
 /* --------------------------------------------------------------- */
 const playerPackets = require("./playerpackets");
 const entityPackets = require("./entitypackets");
-const worldPackets = require("./worldPackets");
+const worldPackets = require("./worldpackets");
 const containerPackets = require("./containerpackets");
 
 module.exports = {

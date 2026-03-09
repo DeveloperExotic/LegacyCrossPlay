@@ -10,7 +10,10 @@ process.on("warning", (warning) => {
 const LCEProxy = require("./src/lceproxy");
 
 const proxy = new LCEProxy();
-proxy.start();
+
+(async () => {
+  await proxy.start();
+})();
 
 process.on("SIGINT", () => {
   proxy.stop();

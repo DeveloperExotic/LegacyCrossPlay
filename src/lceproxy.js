@@ -8,13 +8,16 @@ const {
   GAME_PORT,
   WIN64_LAN_DISCOVERY_PORT,
   MINECRAFT_NET_VERSION,
+  USE_JAVA_ACCOUNT,
   USE_LEGACY_USERNAME,
   CUSTOM_USERNAME,
   PROXY_NAME,
 } = require("../constants");
+const msAuth = require("./auth");
 const PacketWriter = require("./packetwriter");
 const PacketReader = require("./packetreader");
 const LANBroadcast = require("./lanbroadcast");
+const recipeData = require("./mappings/recipemapping");
 const {
   createEntityTypeMapping,
   createItemMapping,
@@ -54,6 +57,16 @@ class LCEProxy {
     this.javaBlockMapping = createBlockMapping();
     this.javaItemMapping = createItemMapping();
     this.javaEntityTypeMapping = createEntityTypeMapping();
+
+    this.validLCEPackets = new Set([
+      0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
+      0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+      0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23,
+      0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+      0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x3e, 0x46, 0x64, 0x65, 0x66, 0x67,
+      0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x82, 0x83, 0xc8, 0xc9, 0xca, 0xcb,
+      0xcc, 0xcd, 0xce, 0xcf, 0xd0, 0xd1, 0xfa, 0xfc, 0xfd, 0xfe, 0xff,
+    ]);
   }
 
   mapJavaBlockToLCE(javaBlockId) {
@@ -163,7 +176,21 @@ class LCEProxy {
     return null;
   }
 
-  start() {
+  async start() {
+    if (USE_JAVA_ACCOUNT) {
+      try {
+        await msAuth.authenticate();
+        console.log("Logged in as: " + msAuth.username);
+      } catch (err) {
+        console.log("\Failed to log into java account! (", err.message, ")");
+        console.log(
+          "If you enabled this by accident and would like to only join offline servers for free,",
+        );
+        console.log("set USE_JAVA_ACCOUNT to false in constants.js\n");
+        process.exit(1);
+      }
+    }
+
     this.startBroadcasting();
     this.startTCPServer();
 
@@ -510,10 +537,11 @@ class LCEProxy {
           this.handleContainerAck(client, packetData);
         }
         break;
-      //maybe we can use a custom JavaCraftingPacket (0x9E) packet with
-      //crafting grid data because java edition doesn't craft with recipe ids
-      //case 0x96:
-      //    break;
+      case 0x96:
+        if (client.state === "play") {
+          this.handleCraftItem(client, packetData);
+        }
+        break;
       case 0x97: //TradeItemPacket - 151
         if (client.state === "play") {
           this.handleTradeItem(client, packetData);
@@ -2185,10 +2213,25 @@ class LCEProxy {
     }, totalDelay + 100);
   }
 
-  //LCE uses recipe ids to craft, whilst java edition requires grid data
-  //we should write a server plugin that sends the recipe data when crafting because lazy
   handleCraftItem(client, data) {
-    /* do nothing */
+    const reader = new PacketReader(data.slice(1));
+    const uid = reader.readShort();
+    const recipeId = reader.readInt();
+
+    const grid = recipeData[recipeId] || [
+      "none",
+      "none",
+      "none",
+      "none",
+      "none",
+      "none",
+      "none",
+      "none",
+      "none",
+    ];
+
+    //console.log(`recipe id: ${recipeId}`);
+    //console.log(`${grid[0]}, ${grid[1]}, ${grid[2]}, ${grid[3]}, ${grid[4]}, ${grid[5]}, ${grid[6]}, ${grid[7]}, ${grid[8]}`);
   }
   handleJavaCrafting(client, data) {
     /* do nothing */
@@ -2526,13 +2569,35 @@ class LCEProxy {
   }
 
   sendPacket(client, packetId, payload) {
-    const packetData = Buffer.concat([Buffer.from([packetId]), payload]);
-    const lengthPrefix = Buffer.allocUnsafe(4);
-    lengthPrefix.writeUInt32BE(packetData.length, 0);
+    if (!this.validLCEPackets.has(packetId)) {
+      console.warn(
+        `[WARNING] Attempted to send invalid packet ID: 0x${packetId.toString(16).toUpperCase().padStart(2, "0")}`,
+      );
+      return;
+    }
 
-    const fullPacket = Buffer.concat([lengthPrefix, packetData]);
+    if (!payload || !Buffer.isBuffer(payload)) {
+      console.warn(
+        `[WARNING] Invalid payload for packet 0x${packetId.toString(16).toUpperCase().padStart(2, "0")}`,
+      );
+      return;
+    }
 
-    const success = client.socket.write(fullPacket);
+    if (client.socket.destroyed) {
+      return;
+    }
+
+    try {
+      const packetData = Buffer.concat([Buffer.from([packetId]), payload]);
+      const lengthPrefix = Buffer.allocUnsafe(4);
+      lengthPrefix.writeUInt32BE(packetData.length, 0);
+
+      const fullPacket = Buffer.concat([lengthPrefix, packetData]);
+
+      client.socket.write(fullPacket);
+    } catch (err) {
+      /* do nothing */
+    }
   }
 
   disconnectClient(client, reason = 0) {
@@ -2602,8 +2667,8 @@ class LCEProxy {
     }
   }
 
-  connectToJavaServer(client) {
-    return connectToJavaServerFunc(this, client);
+  async connectToJavaServer(client) {
+    return await connectToJavaServerFunc(this, client);
   }
 
   stop() {
