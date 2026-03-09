@@ -1,12 +1,18 @@
 /* --------------------------------------------------------------- */
 /*                            chunk.js                             */
 /* --------------------------------------------------------------- */
+/**
+ * @param {Buffer<ArrayBuffer>} data
+ * @returns {Buffer<ArrayBuffer>}
+ */
 function compressRLE(data) {
+  /** @type {number[]} */
   const output = [];
   let i = 0;
 
   while (i < data.length) {
-    const byte = data[i];
+    /** @type {number} */
+    const byte = /** @type {number} */ (data[i]);
     let count = 1;
 
     while (i + count < data.length && data[i + count] === byte && count < 256) {
@@ -31,6 +37,10 @@ function compressRLE(data) {
   return Buffer.from(output);
 }
 
+/**
+ * @param {number} n
+ * @returns {number}
+ */
 function countSetBits(n) {
   let count = 0;
   while (n) {

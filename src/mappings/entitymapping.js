@@ -1,6 +1,9 @@
 ﻿/* --------------------------------------------------------------- */
 /*                         entitymapping.js                        */
 /* --------------------------------------------------------------- */
+/**
+ * @returns {Record<string, number>}
+ */
 function createEntityTypeMapping() {
   return {
     //monsters
