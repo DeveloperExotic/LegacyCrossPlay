@@ -103,29 +103,29 @@ function writeItemNBT(writer, item) {
   const nbtWriter = new PacketWriter();
 
   nbtWriter.writeByte(10);
-  nbtWriter.writeUTF("");
+  nbtWriter.writeString("");
 
   if (customName) {
     nbtWriter.writeByte(10);
-    nbtWriter.writeUTF("display");
+    nbtWriter.writeString("display");
     nbtWriter.writeByte(8);
-    nbtWriter.writeUTF("Name");
-    nbtWriter.writeUTF(customName);
+    nbtWriter.writeString("Name");
+    nbtWriter.writeString(customName);
     nbtWriter.writeByte(0);
   }
 
   if (storedEnchantments) {
     nbtWriter.writeByte(9);
-    nbtWriter.writeUTF("StoredEnchantments");
+    nbtWriter.writeString("StoredEnchantments");
     nbtWriter.writeByte(10);
     nbtWriter.writeInt(storedEnchantments.length);
 
     for (const ench of storedEnchantments) {
       nbtWriter.writeByte(2);
-      nbtWriter.writeUTF("id");
+      nbtWriter.writeString("id");
       nbtWriter.writeShort(ench.id.value);
       nbtWriter.writeByte(2);
-      nbtWriter.writeUTF("lvl");
+      nbtWriter.writeString("lvl");
       nbtWriter.writeShort(ench.lvl.value);
       nbtWriter.writeByte(0);
     }

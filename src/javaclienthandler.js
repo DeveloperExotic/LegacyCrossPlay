@@ -227,7 +227,7 @@ async function connectToJavaServer(proxy, client) {
   javaClient.on("window_items", (packet) => {
     if (client.state === "play") {
       if (packet.windowId < 0) {
-        return;
+  
       }
 
       if (packet.windowId === 0) {
@@ -309,7 +309,7 @@ async function connectToJavaServer(proxy, client) {
     if (client.state === "play") {
       //idk why LCE sends negative window ids
       if (packet.windowId < 0) {
-        return;
+  
       }
 
       if (packet.windowId >= 0) {
@@ -341,6 +341,10 @@ async function connectToJavaServer(proxy, client) {
             chestData.items[packet.slot] = packet.item;
           }
         }
+      }
+
+      if (packet.windowId < 0 || packet.windowId > 255) {
+        return;
       }
 
       const slotWriter = new PacketWriter();
@@ -406,6 +410,7 @@ async function connectToJavaServer(proxy, client) {
   });
 
   javaClient.on("respawn", (packet) => {
+
     if (client.state === "play") {
       client.javaDimension = packet.dimension;
 
@@ -745,7 +750,7 @@ async function connectToJavaServer(proxy, client) {
   javaClient.on("block_change", (packet) => {
     if (client.state === "play") {
       if (!packet.location) {
-        return;
+  
       }
 
       const x = packet.location.x;
@@ -783,7 +788,7 @@ async function connectToJavaServer(proxy, client) {
   javaClient.on("block_action", (packet) => {
     if (client.state === "play") {
       if (!packet.location) {
-        return;
+  
       }
 
       const x = packet.location.x;
@@ -835,7 +840,7 @@ async function connectToJavaServer(proxy, client) {
         const z = packet.location.z;
 
         if (blockId <= 0 || blockId > 255) {
-          return;
+    
         }
 
         //const particleName = `blockcrack_${blockId}_${metadata}`;
@@ -859,11 +864,11 @@ async function connectToJavaServer(proxy, client) {
     if (client.state === "play") {
       const particleName = proxy.mapJavaParticleToLCE(packet.particleId);
       if (!particleName) {
-        return;
+  
       }
 
       if (!particleName || particleName.trim().length === 0) {
-        return;
+  
       }
 
       if (
@@ -874,7 +879,7 @@ async function connectToJavaServer(proxy, client) {
         if (parts.length >= 3) {
           const id = parseInt(parts[1]);
           if (isNaN(id) || id < 0 || id > 255) {
-            return;
+      
           }
         }
       }
@@ -897,7 +902,7 @@ async function connectToJavaServer(proxy, client) {
   javaClient.on("multi_block_change", (packet) => {
     if (client.state === "play") {
       if (!packet.records || packet.records.length === 0) {
-        return;
+  
       }
 
       for (const record of packet.records) {
@@ -972,11 +977,11 @@ async function connectToJavaServer(proxy, client) {
       const lceEntityType = proxy.javaEntityTypeMapping[javaType];
 
       if (!lceEntityType) {
-        return;
+  
       }
 
       if (lceEntityType < 0 || lceEntityType > 200) {
-        return;
+  
       }
 
       const lceEntityId = proxy.mapJavaEntityIdToLce(client, packet.entityId);
@@ -1007,7 +1012,7 @@ async function connectToJavaServer(proxy, client) {
       try {
         proxy.sendAddMobPacket(client, entityInfo);
       } catch (err) {
-        return;
+  
       }
 
       const relevantMetadata = entityInfo.metadata.filter((m) => {
@@ -1032,7 +1037,7 @@ async function connectToJavaServer(proxy, client) {
           packet.entityId === undefined ||
           packet.type === undefined
         ) {
-          return;
+    
         }
 
         if (
@@ -1040,18 +1045,18 @@ async function connectToJavaServer(proxy, client) {
           !Number.isFinite(packet.y) ||
           !Number.isFinite(packet.z)
         ) {
-          return;
+    
         }
 
         if (!Number.isFinite(packet.yaw) || !Number.isFinite(packet.pitch)) {
-          return;
+    
         }
 
         let lceEntityType = packet.type;
 
         const unsupportedEntityTypes = [78];
         if (unsupportedEntityTypes.includes(lceEntityType)) {
-          return;
+    
         }
 
         if (packet.type === 10) {
@@ -1079,7 +1084,7 @@ async function connectToJavaServer(proxy, client) {
         }
 
         if (lceEntityType < 0 || lceEntityType > 200) {
-          return;
+    
         }
 
         const lceEntityId = proxy.mapJavaEntityIdToLce(client, packet.entityId);
@@ -1147,7 +1152,7 @@ async function connectToJavaServer(proxy, client) {
         try {
           proxy.sendAddEntityPacket(client, entityInfo);
         } catch (err) {
-          return;
+    
         }
 
         if (lceEntityType === 2) {
@@ -1410,7 +1415,7 @@ async function connectToJavaServer(proxy, client) {
           eventWriter.writeByte(packet.entityStatus);
           proxy.sendPacket(client, 0x26, eventWriter.toBuffer());
         }
-        return;
+  
       }
 
       if (client.javaEntities.has(packet.entityId)) {
@@ -1696,7 +1701,7 @@ async function connectToJavaServer(proxy, client) {
     try {
       if (client.state === "play") {
         if (!packet || packet.entityId === undefined) {
-          return;
+    
         }
 
         if (packet.entityId === client.javaPlayerEntityId) {
@@ -1707,7 +1712,7 @@ async function connectToJavaServer(proxy, client) {
             velocityZ: packet.velocityZ,
           };
           proxy.sendSetEntityMotionPacket(client, localPlayerEntity);
-          return;
+    
         }
 
         if (client.javaEntities.has(packet.entityId)) {
@@ -1717,7 +1722,7 @@ async function connectToJavaServer(proxy, client) {
           entity.velocityZ = packet.velocityZ;
 
           proxy.sendSetEntityMotionPacket(client, entity);
-          return;
+    
         }
 
         for (const [uuid, player] of client.javaPlayers) {
@@ -1733,7 +1738,7 @@ async function connectToJavaServer(proxy, client) {
               velocityZ: packet.velocityZ,
             };
             proxy.sendSetEntityMotionPacket(client, playerEntity);
-            return;
+      
           }
         }
       }
@@ -1937,7 +1942,7 @@ async function connectToJavaServer(proxy, client) {
 
     const chunkData = packet.chunkData || packet.data;
     if (!chunkData || chunkData.length === 0) {
-      return;
+
     }
 
     convertAndSendJavaChunk(proxy, client, {
@@ -1951,7 +1956,7 @@ async function connectToJavaServer(proxy, client) {
 
   javaClient.on("map_chunk_bulk", (packet) => {
     if (!packet.meta || !packet.data) {
-      return;
+
     }
 
     let decompressed = packet.data;

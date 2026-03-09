@@ -64,7 +64,7 @@ class LCEProxy {
       0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23,
       0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
       0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x3e, 0x46, 0x64, 0x65, 0x66, 0x67,
-      0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x82, 0x83, 0xc8, 0xc9, 0xca, 0xcb,
+      0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x82, 0x83, 0x96, 0x97, 0x98, 0xc8, 0xc9, 0xca, 0xcb,
       0xcc, 0xcd, 0xce, 0xcf, 0xd0, 0xd1, 0xfa, 0xfc, 0xfd, 0xfe, 0xff,
     ]);
   }
@@ -340,19 +340,9 @@ class LCEProxy {
 
         case 0x0d:
           if (offset >= data.length) return null;
-
           const remainingInBundle = data.length - offset;
-
-          if (remainingInBundle === 42) return 42;
-          if (remainingInBundle === 41) return 41;
-          if (remainingInBundle === 34) return 34;
-          if (remainingInBundle === 33) return 33;
-          if (remainingInBundle === 10) return 10;
-          if (remainingInBundle === 9) return 9;
-          if (remainingInBundle === 2) return 2;
-          if (remainingInBundle === 1) return 1;
-
-          return remainingInBundle;
+          if (remainingInBundle < 42) return remainingInBundle;
+          return 42;
 
         case 0x0e:
           return 1 + 1 + 4 + 1 + 4 + 1;
@@ -409,6 +399,9 @@ class LCEProxy {
         case 0xcd:
           return 1 + 1;
 
+        case 0x98:
+          return 1 + 4;
+
         default:
           return null;
       }
@@ -418,6 +411,7 @@ class LCEProxy {
   }
 
   handleClientData(client, data) {
+    try {
     client.buffer = Buffer.concat([client.buffer, data]);
 
     while (client.buffer.length >= 4) {
@@ -442,7 +436,6 @@ class LCEProxy {
             packetData,
             offset,
           );
-
           if (bundledSize <= 0 || offset + bundledSize > packetData.length) {
             break;
           }
@@ -454,6 +447,9 @@ class LCEProxy {
       } else {
         this.processPacket(client, packetId, packetData, false);
       }
+    }
+    } catch (err) {
+      /* do nothing */
     }
   }
 
@@ -546,6 +542,8 @@ class LCEProxy {
         if (client.state === "play") {
           this.handleTradeItem(client, packetData);
         }
+        break;
+      case 0x98:
         break;
       //case 0x9E: //JavaCraftingPacket - 158
       //    if (client.state === 'play') {
@@ -662,6 +660,7 @@ class LCEProxy {
   }
 
   sendLCELoginResponse(client) {
+
     const writer = new PacketWriter();
     writer.writeInt(client.smallId); //entityId
 
@@ -2593,7 +2592,6 @@ class LCEProxy {
       lengthPrefix.writeUInt32BE(packetData.length, 0);
 
       const fullPacket = Buffer.concat([lengthPrefix, packetData]);
-
       client.socket.write(fullPacket);
     } catch (err) {
       /* do nothing */
