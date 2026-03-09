@@ -1,8 +1,8 @@
 # Legacy Cross Play
 
 **This project allows Legacy Console Edition clients to join a vanilla 1.8 Java Edition server!**
-![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/screenshot1.png)
-![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/screenshot2.png)
+![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/asset1.png)
+![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/asset2.png)
 
 # How to Install
 
