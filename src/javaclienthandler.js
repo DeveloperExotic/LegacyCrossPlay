@@ -836,8 +836,16 @@ async function connectToJavaServer(proxy, client) {
       const z = packet.location.z;
 
       const blockStateId = packet.type;
-      const javaBlockId = blockStateId >> 4;
-      const metadata = blockStateId & 0xf;
+      let javaBlockId = blockStateId >> 4;
+      let metadata = blockStateId & 0xf;
+
+      if (javaBlockId < 0 || javaBlockId > 4095) {
+        javaBlockId = 0;
+        metadata = 0;
+      }
+      if (metadata < 0 || metadata > 15) {
+        metadata = 0;
+      }
 
       let lceBlockId = proxy.mapJavaBlockToLCE(javaBlockId);
       let lceMetadata = metadata;
@@ -856,6 +864,10 @@ async function connectToJavaServer(proxy, client) {
 
       if (lceBlockId < 0 || lceBlockId > 170) {
         lceBlockId = 0;
+        lceMetadata = 0;
+      }
+
+      if (lceMetadata < 0 || lceMetadata > 15) {
         lceMetadata = 0;
       }
 
@@ -987,8 +999,16 @@ async function connectToJavaServer(proxy, client) {
         const y = record.y;
 
         const blockStateId = record.blockId;
-        const javaBlockId = blockStateId >> 4;
-        const metadata = blockStateId & 0xf;
+        let javaBlockId = blockStateId >> 4;
+        let metadata = blockStateId & 0xf;
+
+        if (javaBlockId < 0 || javaBlockId > 4095) {
+          javaBlockId = 0;
+          metadata = 0;
+        }
+        if (metadata < 0 || metadata > 15) {
+          metadata = 0;
+        }
 
         let lceBlockId = proxy.mapJavaBlockToLCE(javaBlockId);
         let lceMetadata = metadata;
@@ -1007,6 +1027,10 @@ async function connectToJavaServer(proxy, client) {
 
         if (lceBlockId < 0 || lceBlockId > 170) {
           lceBlockId = 0;
+          lceMetadata = 0;
+        }
+
+        if (lceMetadata < 0 || lceMetadata > 15) {
           lceMetadata = 0;
         }
 
@@ -2126,9 +2150,17 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
           for (let sx = 0; sx < 16; sx++) {
             if (dataOffset + 1 < javaData.length) {
               const blockStateId = javaData.readUInt16LE(dataOffset);
-              const javaBlockId = blockStateId >> 4;
-              const metadata = blockStateId & 0x0f;
+              let javaBlockId = blockStateId >> 4;
+              let metadata = blockStateId & 0x0f;
               dataOffset += 2;
+
+              if (javaBlockId < 0 || javaBlockId > 4095) {
+                javaBlockId = 0;
+                metadata = 0;
+              }
+              if (metadata < 0 || metadata > 15) {
+                metadata = 0;
+              }
 
               if (
                 client.javaDimension === -1 &&
@@ -2144,7 +2176,7 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
               let lceBlockId = proxy.mapJavaBlockToLCE(javaBlockId);
               let lceMetadata = metadata;
 
-              if (lceBlockId > 170 || lceBlockId < 0) {
+              if (lceBlockId > 174 || lceBlockId < 0) {
                 lceBlockId = 0;
                 lceMetadata = 0;
               }
@@ -2212,8 +2244,9 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
                 }
 
                 if (
-                  metadataOffset + nibbleOffset >=
-                  blockCount + halfBlockCount
+                  nibbleOffset < 0 ||
+                  metadataOffset + nibbleOffset < 0 ||
+                  metadataOffset + nibbleOffset >= blockCount + halfBlockCount
                 ) {
                   continue;
                 }
@@ -2250,7 +2283,12 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
       const expectedOffset = sectionCount * (hasSky ? 12288 : 10240);
     }
 
-    if (javaBiomeOffset + 256 <= javaData.length) {
+    if (
+      javaBiomeOffset >= 0 &&
+      javaBiomeOffset + 256 <= javaData.length &&
+      biomeOffset >= 0 &&
+      biomeOffset + biomeSize <= rawSize
+    ) {
       for (let i = 0; i < biomeSize; i++) {
         rawData[biomeOffset + i] = javaData[javaBiomeOffset + i];
       }
@@ -2259,7 +2297,7 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
         const biomeData = rawData.slice(biomeOffset, biomeOffset + biomeSize);
         const uniqueBiomes = new Set(biomeData);
       }
-    } else {
+    } else if (biomeOffset >= 0 && biomeOffset + biomeSize <= rawSize) {
       for (let i = 0; i < biomeSize; i++) {
         rawData[biomeOffset + i] = 1;
       }
@@ -2267,8 +2305,10 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
   }
 
   const skyLightOffset = blockCount + halfBlockCount + halfBlockCount;
-  for (let i = 0; i < halfBlockCount; i++) {
-    rawData[skyLightOffset + i] = 0xff;
+  if (skyLightOffset >= 0 && skyLightOffset + halfBlockCount <= rawSize) {
+    for (let i = 0; i < halfBlockCount; i++) {
+      rawData[skyLightOffset + i] = 0xff;
+    }
   }
 
   if (rawData.length !== rawSize) {
@@ -2290,6 +2330,10 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
 
   const worldX = javaChunk.x * 16;
   const worldZ = javaChunk.z * 16;
+
+  if (!Number.isInteger(worldX) || !Number.isInteger(worldZ)) {
+    return;
+  }
 
   writer.writeInt(worldX);
   writer.writeShort(0);

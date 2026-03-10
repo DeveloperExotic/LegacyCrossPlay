@@ -63,7 +63,7 @@ class LCEProxy {
       0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
       0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23,
       0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
-      0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x3c, 0x3d, 0x3e, 0x46, 0x64, 0x65,
+      0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x3c, 0x3d, 0x3e, 0x46, 0x64, 0x65,
       0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x82, 0x83, 0x96, 0x97,
       0x98, 0x9a, 0x9d, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0,
       0xd1, 0xfa, 0xfc, 0xfd, 0xfe, 0xff,
@@ -820,8 +820,8 @@ class LCEProxy {
 
   sendAddPlayerPacket(client, playerInfo) {
     let playerName = playerInfo.name || "undefined";
-    if (playerName.length > 16) {
-      playerName = playerName.substring(0, 16);
+    if (playerName.length > 20) {
+      playerName = playerName.substring(0, 20);
     }
     if (playerName.length === 0) {
       playerName = "undefined";
@@ -2608,16 +2608,10 @@ class LCEProxy {
 
   sendPacket(client, packetId, payload) {
     if (!this.validLCEPackets.has(packetId)) {
-      console.warn(
-        `[WARNING] Attempted to send invalid packet ID: 0x${packetId.toString(16).toUpperCase().padStart(2, "0")}`,
-      );
       return;
     }
 
     if (!payload || !Buffer.isBuffer(payload)) {
-      console.warn(
-        `[WARNING] Invalid payload for packet 0x${packetId.toString(16).toUpperCase().padStart(2, "0")}`,
-      );
       return;
     }
 
@@ -2633,9 +2627,6 @@ class LCEProxy {
       const fullPacket = Buffer.concat([lengthPrefix, packetData]);
 
       if (fullPacket.length > 1000000) {
-        console.warn(
-          `[WARNING] Packet 0x${packetId.toString(16)} is too large: ${fullPacket.length} bytes`,
-        );
         return;
       }
 
@@ -2657,10 +2648,7 @@ class LCEProxy {
         });
       }
     } catch (err) {
-      console.error(
-        `[ERROR] Failed to send packet 0x${packetId.toString(16)}:`,
-        err.message,
-      );
+      /* do nothing */
     }
   }
 

@@ -1,6 +1,6 @@
 # Legacy Cross Play
 ## Any questions, need help? [Join the server!](https://discord.gg/cb9rs9yfDm)
-## CURRENTLY, THE ORIGINAL LEGACY CLIENT IS BROKEN, USE [THIS ONE]()
+## CURRENTLY, THE ORIGINAL LEGACY CLIENT IS BROKEN, USE [THIS ONE](https://github.com/DeveloperExotic/LegacyCrossPlay/releases)
 
 **This project allows Legacy Console Edition clients to join a vanilla 1.8 Java Edition server!**
 ![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/lce1.png)
