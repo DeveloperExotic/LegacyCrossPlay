@@ -1,5 +1,5 @@
 # Legacy Cross Play
-# I AM AWARE THE PROJECT IS BROKEN RIGHT NOW, THE CLIENT UPDATED AND IM WORNING ON A FIX.
+# I AM AWARE THE PROJECT IS BROKEN RIGHT NOW, THE CLIENT UPDATED AND IM WORKING ON A FIX.
 # Any questions, need help? Join my server: https://discord.gg/cb9rs9yfDm
 
 **This project allows Legacy Console Edition clients to join a vanilla 1.8 Java Edition server!**
