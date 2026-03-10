@@ -5,7 +5,11 @@ const PacketWriter = require("../../packetwriter");
 
 function sendAddMobPacket(proxy, client, entityInfo) {
   try {
-    if (!entityInfo || entityInfo.entityId === undefined || entityInfo.javaEntityId === undefined) {
+    if (
+      !entityInfo ||
+      entityInfo.entityId === undefined ||
+      entityInfo.javaEntityId === undefined
+    ) {
       return;
     }
 
@@ -18,7 +22,11 @@ function sendAddMobPacket(proxy, client, entityInfo) {
     }
     client._sentEntities.add(entityKey);
 
-    if (!Number.isFinite(entityInfo.x) || !Number.isFinite(entityInfo.y) || !Number.isFinite(entityInfo.z)) {
+    if (
+      !Number.isFinite(entityInfo.x) ||
+      !Number.isFinite(entityInfo.y) ||
+      !Number.isFinite(entityInfo.z)
+    ) {
       return;
     }
 
@@ -26,109 +34,113 @@ function sendAddMobPacket(proxy, client, entityInfo) {
     const posY = Math.floor(entityInfo.y * 32);
     const posZ = Math.floor(entityInfo.z * 32);
 
-    if (!Number.isFinite(posX) || !Number.isFinite(posY) || !Number.isFinite(posZ)) {
+    if (
+      !Number.isFinite(posX) ||
+      !Number.isFinite(posY) ||
+      !Number.isFinite(posZ)
+    ) {
       return;
     }
 
     const writer = new PacketWriter();
-    writer.writeShort(entityInfo.entityId & 0xFFFF);
+    writer.writeShort(entityInfo.entityId & 0xffff);
     writer.writeByte(entityInfo.type & 0xff);
 
     writer.writeInt(posX);
     writer.writeInt(posY);
     writer.writeInt(posZ);
 
-  const yRotByte = Math.floor(((entityInfo.yaw % 360) / 360) * 256) & 0xff;
-  const xRotByte = Math.floor(((entityInfo.pitch % 360) / 360) * 256) & 0xff;
-  const yHeadRotByte =
-    Math.floor(((entityInfo.headYaw % 360) / 360) * 256) & 0xff;
-  writer.writeByte(yRotByte);
-  writer.writeByte(xRotByte);
-  writer.writeByte(yHeadRotByte);
+    const yRotByte = Math.floor(((entityInfo.yaw % 360) / 360) * 256) & 0xff;
+    const xRotByte = Math.floor(((entityInfo.pitch % 360) / 360) * 256) & 0xff;
+    const yHeadRotByte =
+      Math.floor(((entityInfo.headYaw % 360) / 360) * 256) & 0xff;
+    writer.writeByte(yRotByte);
+    writer.writeByte(xRotByte);
+    writer.writeByte(yHeadRotByte);
 
-  let velX = entityInfo.velocityX || 0;
-  let velY = entityInfo.velocityY || 0;
-  let velZ = entityInfo.velocityZ || 0;
-  velX = Math.max(-3.9, Math.min(3.9, velX));
-  velY = Math.max(-3.9, Math.min(3.9, velY));
-  velZ = Math.max(-3.9, Math.min(3.9, velZ));
-  const velocityX = Math.floor(velX * 8000);
-  const velocityY = Math.floor(velY * 8000);
-  const velocityZ = Math.floor(velZ * 8000);
-  writer.writeShort(velocityX);
-  writer.writeShort(velocityY);
-  writer.writeShort(velocityZ);
+    let velX = entityInfo.velocityX || 0;
+    let velY = entityInfo.velocityY || 0;
+    let velZ = entityInfo.velocityZ || 0;
+    velX = Math.max(-3.9, Math.min(3.9, velX));
+    velY = Math.max(-3.9, Math.min(3.9, velY));
+    velZ = Math.max(-3.9, Math.min(3.9, velZ));
+    const velocityX = Math.floor(velX * 8000);
+    const velocityY = Math.floor(velY * 8000);
+    const velocityZ = Math.floor(velZ * 8000);
+    writer.writeShort(velocityX);
+    writer.writeShort(velocityY);
+    writer.writeShort(velocityZ);
 
-  writer.writeByte((0 << 5) | 0);
-  writer.writeByte(0);
+    writer.writeByte((0 << 5) | 0);
+    writer.writeByte(0);
 
-  writer.writeByte((1 << 5) | 1);
-  writer.writeShort(300);
+    writer.writeByte((1 << 5) | 1);
+    writer.writeShort(300);
 
-  const agableMobTypes = [92, 91, 90, 93, 120];
-  if (agableMobTypes.includes(entityInfo.type)) {
-    const ageMetadata = entityInfo.metadata
-      ? entityInfo.metadata.find((m) => m.key === 12)
-      : null;
-    if (ageMetadata && ageMetadata.value !== undefined) {
-      writer.writeByte((2 << 5) | 12);
-      writer.writeInt(ageMetadata.value);
+    const agableMobTypes = [92, 91, 90, 93, 120];
+    if (agableMobTypes.includes(entityInfo.type)) {
+      const ageMetadata = entityInfo.metadata
+        ? entityInfo.metadata.find((m) => m.key === 12)
+        : null;
+      if (ageMetadata && ageMetadata.value !== undefined) {
+        writer.writeByte((2 << 5) | 12);
+        writer.writeInt(ageMetadata.value);
+      }
     }
-  }
 
-  if (entityInfo.type === 120) {
-    const professionMetadata = entityInfo.metadata
-      ? entityInfo.metadata.find((m) => m.key === 16 && m.type === 2)
-      : null;
-    if (professionMetadata && professionMetadata.value !== undefined) {
-      writer.writeByte((2 << 5) | 16);
-      writer.writeInt(professionMetadata.value);
+    if (entityInfo.type === 120) {
+      const professionMetadata = entityInfo.metadata
+        ? entityInfo.metadata.find((m) => m.key === 16 && m.type === 2)
+        : null;
+      if (professionMetadata && professionMetadata.value !== undefined) {
+        writer.writeByte((2 << 5) | 16);
+        writer.writeInt(professionMetadata.value);
+      }
     }
-  }
 
-  const customNameMeta = entityInfo.metadata
-    ? entityInfo.metadata.find((m) => m.key === 2 && m.type === 4)
-    : null;
-  if (customNameMeta && customNameMeta.value) {
-    writer.writeByte((4 << 5) | 10);
-    writer.writeUtf(customNameMeta.value);
-  }
-
-  const customNameVisibleMeta = entityInfo.metadata
-    ? entityInfo.metadata.find((m) => m.key === 3 && m.type === 0)
-    : null;
-  if (customNameVisibleMeta && customNameVisibleMeta.value !== undefined) {
-    writer.writeByte((0 << 5) | 11);
-    writer.writeByte(customNameVisibleMeta.value & 0xff);
-  }
-
-  if (entityInfo.type === 55 || entityInfo.type === 62) {
-    const sizeMetadata = entityInfo.metadata
-      ? entityInfo.metadata.find((m) => m.key === 16 && m.type === 0)
+    const customNameMeta = entityInfo.metadata
+      ? entityInfo.metadata.find((m) => m.key === 2 && m.type === 4)
       : null;
-    if (sizeMetadata && sizeMetadata.value !== undefined) {
-      writer.writeByte((0 << 5) | 16);
-      writer.writeByte(sizeMetadata.value & 0xff);
+    if (customNameMeta && customNameMeta.value) {
+      writer.writeByte((4 << 5) | 10);
+      writer.writeUtf(customNameMeta.value);
     }
-  }
 
-  if (entityInfo.type === 51) {
-    const typeMetadata = entityInfo.metadata
-      ? entityInfo.metadata.find((m) => m.key === 13 && m.type === 0)
+    const customNameVisibleMeta = entityInfo.metadata
+      ? entityInfo.metadata.find((m) => m.key === 3 && m.type === 0)
       : null;
-    if (typeMetadata && typeMetadata.value !== undefined) {
-      writer.writeByte((0 << 5) | 13);
-      writer.writeByte(typeMetadata.value & 0xff);
+    if (customNameVisibleMeta && customNameVisibleMeta.value !== undefined) {
+      writer.writeByte((0 << 5) | 11);
+      writer.writeByte(customNameVisibleMeta.value & 0xff);
     }
-  }
 
-  writer.writeByte(0x7f);
+    if (entityInfo.type === 55 || entityInfo.type === 62) {
+      const sizeMetadata = entityInfo.metadata
+        ? entityInfo.metadata.find((m) => m.key === 16 && m.type === 0)
+        : null;
+      if (sizeMetadata && sizeMetadata.value !== undefined) {
+        writer.writeByte((0 << 5) | 16);
+        writer.writeByte(sizeMetadata.value & 0xff);
+      }
+    }
 
-  const payload = writer.toBuffer();
-  if (!payload || payload.length === 0 || payload.length > 1000) {
-    return;
-  }
-  proxy.sendPacket(client, 0x18, payload);
+    if (entityInfo.type === 51) {
+      const typeMetadata = entityInfo.metadata
+        ? entityInfo.metadata.find((m) => m.key === 13 && m.type === 0)
+        : null;
+      if (typeMetadata && typeMetadata.value !== undefined) {
+        writer.writeByte((0 << 5) | 13);
+        writer.writeByte(typeMetadata.value & 0xff);
+      }
+    }
+
+    writer.writeByte(0x7f);
+
+    const payload = writer.toBuffer();
+    if (!payload || payload.length === 0 || payload.length > 1000) {
+      return;
+    }
+    proxy.sendPacket(client, 0x18, payload);
   } catch (err) {
     /* do nothing */
   }
@@ -140,7 +152,11 @@ function sendAddEntityPacket(proxy, client, entityInfo) {
       return;
     }
 
-    if (!Number.isFinite(entityInfo.x) || !Number.isFinite(entityInfo.y) || !Number.isFinite(entityInfo.z)) {
+    if (
+      !Number.isFinite(entityInfo.x) ||
+      !Number.isFinite(entityInfo.y) ||
+      !Number.isFinite(entityInfo.z)
+    ) {
       return;
     }
 
@@ -148,13 +164,17 @@ function sendAddEntityPacket(proxy, client, entityInfo) {
     const posY = Math.floor(entityInfo.y * 32);
     const posZ = Math.floor(entityInfo.z * 32);
 
-    if (!Number.isFinite(posX) || !Number.isFinite(posY) || !Number.isFinite(posZ)) {
+    if (
+      !Number.isFinite(posX) ||
+      !Number.isFinite(posY) ||
+      !Number.isFinite(posZ)
+    ) {
       return;
     }
 
     const writer = new PacketWriter();
-    writer.writeShort(entityInfo.entityId & 0xFFFF);
-    writer.writeByte(entityInfo.type & 0xFF);
+    writer.writeShort(entityInfo.entityId & 0xffff);
+    writer.writeByte(entityInfo.type & 0xff);
 
     writer.writeInt(posX);
     writer.writeInt(posY);
@@ -169,17 +189,32 @@ function sendAddEntityPacket(proxy, client, entityInfo) {
     writer.writeByte(yRotByte);
     writer.writeByte(xRotByte);
 
-    const data = entityInfo.data !== undefined && Number.isFinite(entityInfo.data) ? entityInfo.data : -1;
+    const data =
+      entityInfo.data !== undefined && Number.isFinite(entityInfo.data)
+        ? entityInfo.data
+        : -1;
     writer.writeInt(data);
 
     if (data > -1) {
-      const velocityX = Number.isFinite(entityInfo.velocityX) ? entityInfo.velocityX : 0;
-      const velocityY = Number.isFinite(entityInfo.velocityY) ? entityInfo.velocityY : 0;
-      const velocityZ = Number.isFinite(entityInfo.velocityZ) ? entityInfo.velocityZ : 0;
+      const velocityX = Number.isFinite(entityInfo.velocityX)
+        ? entityInfo.velocityX
+        : 0;
+      const velocityY = Number.isFinite(entityInfo.velocityY)
+        ? entityInfo.velocityY
+        : 0;
+      const velocityZ = Number.isFinite(entityInfo.velocityZ)
+        ? entityInfo.velocityZ
+        : 0;
 
-      writer.writeShort(Math.max(-32768, Math.min(32767, Math.floor(velocityX))));
-      writer.writeShort(Math.max(-32768, Math.min(32767, Math.floor(velocityY))));
-      writer.writeShort(Math.max(-32768, Math.min(32767, Math.floor(velocityZ))));
+      writer.writeShort(
+        Math.max(-32768, Math.min(32767, Math.floor(velocityX))),
+      );
+      writer.writeShort(
+        Math.max(-32768, Math.min(32767, Math.floor(velocityY))),
+      );
+      writer.writeShort(
+        Math.max(-32768, Math.min(32767, Math.floor(velocityZ))),
+      );
     }
 
     const buffer = writer.toBuffer();
@@ -298,7 +333,25 @@ function sendRotateHeadPacketForEntity(proxy, client, entity) {
 function sendEntityMetadataPacket(proxy, client, entity, metadata) {
   const writer = new PacketWriter();
   writer.writeInt(entity.entityId);
+
   for (const item of metadata) {
+    if (!item || item.type === undefined || item.key === undefined) {
+      console.error(
+        `[METADATA ERROR] entityId=${entity.entityId} invalid metadata item:`,
+        JSON.stringify(item),
+      );
+      continue;
+    }
+    if (item.type < 0 || item.type > 5) {
+      console.error(
+        `[METADATA ERROR] entityId=${entity.entityId} invalid type=${item.type} key=${item.key}`,
+      );
+      continue;
+    }
+    if (item.type === 5) {
+      continue;
+    }
+
     if (item.key === 12 && item.type === 0) {
       const ageableMobTypes = [
         "Pig",
@@ -342,15 +395,12 @@ function sendEntityMetadataPacket(proxy, client, entity, metadata) {
       case 4:
         writer.writeUtf(item.value);
         break;
-      case 5:
-        continue;
-      default:
-        continue;
     }
   }
   writer.writeByte(0x7f);
 
-  proxy.sendPacket(client, 0x28, writer.toBuffer());
+  const payload = writer.toBuffer();
+  proxy.sendPacket(client, 0x28, payload);
 }
 
 function sendSetEntityMotionPacket(proxy, client, entity) {

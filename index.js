@@ -17,6 +17,15 @@ const proxy = new LCEProxy();
 
 process.on("SIGINT", () => {
   proxy.stop();
-  process.exit(0);
+  setTimeout(() => {
+    process.exit(0);
+  }, 200);
+});
+
+process.on("SIGTERM", () => {
+  proxy.stop();
+  setTimeout(() => {
+    process.exit(0);
+  }, 200);
 });
 /* --------------------------------------------------------------- */

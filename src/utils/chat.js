@@ -469,6 +469,13 @@ function getTranslation(key, args = []) {
   return key;
 }
 
+function stripColorCodes(text) {
+  if (!text || typeof text !== "string") {
+    return text;
+  }
+  return text.replace(/§./g, "");
+}
+
 function parseChatComponent(component) {
   if (!component) return "";
 
@@ -523,5 +530,5 @@ function parseChatComponent(component) {
   return result;
 }
 
-module.exports = { getTranslation, parseChatComponent };
+module.exports = { getTranslation, parseChatComponent, stripColorCodes };
 /* --------------------------------------------------------------- */

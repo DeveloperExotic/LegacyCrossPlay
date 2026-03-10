@@ -1,4 +1,6 @@
 # Legacy Cross Play
+## Any questions, need help? [Join the server!](https://discord.gg/cb9rs9yfDm)
+## CURRENTLY, THE ORIGINAL LEGACY CLIENT IS BROKEN, USE [THIS ONE]()
 
 **This project allows Legacy Console Edition clients to join a vanilla 1.8 Java Edition server!**
 ![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/lce1.png)
@@ -111,6 +113,7 @@
   - [x] Fix arrow bug when colliding with player / low bow pull
 - [x] Falling block entities (e.g. sand, gravel, anvil)
 - [x] Fireball
+- [x] Custom Java Edition skins
 
 ---
 
@@ -119,6 +122,7 @@
 ## Chat
 
 - [x] Receive server chat
+  - [x] Finter server colors
 - [x] Send server chat
 - [x] Fix chat commands (e.g. /say, /tellraw)
 - [x] Java edition english chat translations

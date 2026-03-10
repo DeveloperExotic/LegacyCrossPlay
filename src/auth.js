@@ -1,3 +1,6 @@
+/* --------------------------------------------------------------- */
+/*                              auth.js                            */
+/* --------------------------------------------------------------- */
 const { Authflow, Titles } = require("prismarine-auth");
 const fs = require("fs");
 const path = require("path");
@@ -90,3 +93,4 @@ class MicrosoftAuth {
 const authInstance = new MicrosoftAuth();
 
 module.exports = authInstance;
+/* --------------------------------------------------------------- */

@@ -1,3 +1,6 @@
+/* --------------------------------------------------------------- */
+/*                          recipemapping.js                       */
+/* --------------------------------------------------------------- */
 //all of the crafting recipes that are sent from the client converted into a java recipe grid.
 //this was absolute fucking torture to write, thanks mojang for not using recipe ids in java edition crafting until 1.12!
 
@@ -584,3 +587,4 @@ module.exports = {
     "melon", "melon", "melon"
   ],
 };
+/* --------------------------------------------------------------- */

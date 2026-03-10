@@ -16,6 +16,7 @@
   "license": "MIT",
   "dependencies": {
     "minecraft-protocol": "^1.64.0",
+    "pngjs": "^7.0.0",
     "prismarine-auth": "^2.7.0"
   }
 }

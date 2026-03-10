@@ -5,7 +5,7 @@ function mapJavaBlockToLCE(javaBlockId, javaBlockMapping) {
   if (javaBlockMapping[javaBlockId] !== undefined) {
     return javaBlockMapping[javaBlockId];
   }
-  return 0;
+  return 1;
 }
 
 function mapJavaParticleToLCE(particleId) {

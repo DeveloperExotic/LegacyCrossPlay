@@ -63,10 +63,10 @@ class LCEProxy {
       0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
       0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23,
       0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
-      0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x3e, 0x46, 0x64, 0x65, 0x66, 0x67,
-      0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x82, 0x83, 0x96, 0x97, 0x98, 0xc8,
-      0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0, 0xd1, 0xfa, 0xfc, 0xfd,
-      0xfe, 0xff,
+      0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x3c, 0x3d, 0x3e, 0x46, 0x64, 0x65,
+      0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x82, 0x83, 0x96, 0x97,
+      0x98, 0x9a, 0x9d, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0,
+      0xd1, 0xfa, 0xfc, 0xfd, 0xfe, 0xff,
     ]);
   }
 
@@ -794,6 +794,30 @@ class LCEProxy {
     this.sendPacket(client, 0x0d, moveWriter.toBuffer());
   }
 
+  sendTexturePacket(client, textureName, textureData) {
+    if (!client || !client.socket || client.socket.destroyed) {
+      return;
+    }
+    const writer = new PacketWriter();
+    writer.writeUTF(textureName);
+    writer.writeShort(textureData.length);
+    writer.writeBytes(textureData);
+
+    this.sendPacket(client, 0x9a, writer.toBuffer());
+  }
+
+  sendTextureChangePacket(client, entityId, textureName) {
+    if (!client || !client.socket || client.socket.destroyed) {
+      return;
+    }
+    const writer = new PacketWriter();
+    writer.writeInt(entityId);
+    writer.writeByte(0);
+    writer.writeUTF(textureName);
+
+    this.sendPacket(client, 0x9d, writer.toBuffer());
+  }
+
   sendAddPlayerPacket(client, playerInfo) {
     let playerName = playerInfo.name || "undefined";
     if (playerName.length > 16) {
@@ -823,7 +847,9 @@ class LCEProxy {
     writer.writeLong(0); //xuid
     writer.writeLong(0); //OnlineXuid
     writer.writeByte(0); //playerIndex
-    writer.writeInt(0); //skinId
+    const skinIdToSend = playerInfo.skinId || 0;
+
+    writer.writeInt(skinIdToSend); //skinId
     writer.writeInt(0); //capeId
     writer.writeInt(0); //uiGamePrivileges
 
@@ -866,6 +892,14 @@ class LCEProxy {
     writer.writeByte(0x7f);
 
     this.sendPacket(client, 0x14, writer.toBuffer());
+
+    if (playerInfo.customTextureName) {
+      this.sendTextureChangePacket(
+        client,
+        playerInfo.entityId,
+        playerInfo.customTextureName,
+      );
+    }
   }
 
   sendMoveEntityPacket(client, playerInfo) {
@@ -2597,18 +2631,59 @@ class LCEProxy {
       lengthPrefix.writeUInt32BE(packetData.length, 0);
 
       const fullPacket = Buffer.concat([lengthPrefix, packetData]);
-      client.socket.write(fullPacket);
+
+      if (fullPacket.length > 1000000) {
+        console.warn(
+          `[WARNING] Packet 0x${packetId.toString(16)} is too large: ${fullPacket.length} bytes`,
+        );
+        return;
+      }
+
+      if (!client._packetQueue) {
+        client._packetQueue = [];
+        client._sending = false;
+      }
+
+      client._packetQueue.push(fullPacket);
+
+      if (!client._sending) {
+        client._sending = true;
+        setImmediate(() => {
+          while (client._packetQueue.length > 0 && !client.socket.destroyed) {
+            const pkt = client._packetQueue.shift();
+            client.socket.write(pkt);
+          }
+          client._sending = false;
+        });
+      }
     } catch (err) {
-      /* do nothing */
+      console.error(
+        `[ERROR] Failed to send packet 0x${packetId.toString(16)}:`,
+        err.message,
+      );
     }
   }
 
   disconnectClient(client, reason = 0) {
+    const reasonMap = {
+      0: "Generic disconnect",
+      2: "Connection lost",
+      10: "Kicked/Banned",
+      20: "Timeout",
+      23: "Server full",
+    };
+    const reasonText = reasonMap[reason] || `Unknown (${reason})`;
+    console.log(`DISCONNECTED: ${reasonText}`);
+
     if (client.socket && !client.socket.destroyed) {
       try {
         const writer = new PacketWriter();
         writer.writeInt(reason);
         this.sendPacket(client, 0xff, writer.toBuffer());
+        setTimeout(() => {
+          this.removeClient(client);
+        }, 100);
+        return;
       } catch (err) {
         /* do nothing */
       }
@@ -2674,7 +2749,7 @@ class LCEProxy {
     try {
       return await connectToJavaServerFunc(this, client);
     } catch (err) {
-      console.log(`Failed to connect to Java Edition server: ${err}`);
+      console.log(`DISCONNECTED: ${err}`);
     }
   }
 

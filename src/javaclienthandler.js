@@ -13,8 +13,9 @@ const msAuth = require("./auth");
 const PacketWriter = require("./packetwriter");
 const { mapJavaItemToLCE, mapJavaBlockToLCE } = require("./mappings");
 const { mapJavaSoundToLCE } = require("./mappings/soundmapping");
-const { parseChatComponent } = require("./utils/chat");
+const { parseChatComponent, stripColorCodes } = require("./utils/chat");
 const { countSetBits, compressRLE } = require("./utils/chunk");
+const { downloadSkin, generateCustomSkinName } = require("./utils/skins");
 const zlib = require("zlib");
 
 async function connectToJavaServer(proxy, client) {
@@ -53,7 +54,7 @@ async function connectToJavaServer(proxy, client) {
   try {
     javaClient = mc.createClient(authConfig);
   } catch (err) {
-    console.log(`Failed to connect to Java Edition server: ${err}`);
+    console.log(`DISCONNECTED: ${err}`);
     throw err;
   }
 
@@ -61,7 +62,7 @@ async function connectToJavaServer(proxy, client) {
   client._lastJavaPackets = [];
 
   javaClient.on("error", (err) => {
-    console.log(`Failed to connect to Java Edition server: ${err}`);
+    console.log(`DISCONNECTED: ${err}`);
     if (!client._removing) {
       client._removing = true;
       const index = proxy.clients.indexOf(client);
@@ -86,11 +87,14 @@ async function connectToJavaServer(proxy, client) {
   });
 
   javaClient.on("disconnect", (packet) => {
-    console.log(`Failed to connect to Java Edition server: ${packet.reason}`);
+    console.log(`DISCONNECTED: ${packet.reason}`);
+    if (!client._removing) {
+      proxy.disconnectClient(client, 2);
+    }
   });
 
   javaClient.on("kick_disconnect", (packet) => {
-    console.log(`Failed to connect to Java Edition server: ${packet.reason}`);
+    console.log(`DISCONNECTED: ${packet.reason}`);
     if (client.state === "play") {
       let reason = 10;
       if (packet.reason) {
@@ -166,6 +170,7 @@ async function connectToJavaServer(proxy, client) {
         let chatText = "";
 
         chatText = parseChatComponent(packet.message);
+        chatText = stripColorCodes(chatText);
 
         if (chatText && chatText.length > 0) {
           if (chatText.length > 100) {
@@ -241,6 +246,7 @@ async function connectToJavaServer(proxy, client) {
   javaClient.on("window_items", (packet) => {
     if (client.state === "play") {
       if (packet.windowId < 0) {
+        return;
       }
 
       if (packet.windowId === 0) {
@@ -269,10 +275,17 @@ async function connectToJavaServer(proxy, client) {
       invWriter.writeShort(packet.items.length);
 
       for (let i = 0; i < packet.items.length; i++) {
-        proxy.writeItem(invWriter, packet.items[i]);
+        try {
+          proxy.writeItem(invWriter, packet.items[i]);
+        } catch (err) {
+          invWriter.writeShort(-1);
+        }
       }
 
       const payload = invWriter.toBuffer();
+      if (!payload || payload.length < 3 || payload.length > 10000) {
+        return;
+      }
 
       if (isNetworkedChest && chestData) {
         for (const otherClient of chestData.clients) {
@@ -321,8 +334,9 @@ async function connectToJavaServer(proxy, client) {
   javaClient.on("set_slot", (packet) => {
     if (client.state === "play") {
       //idk why LCE sends negative window ids
-      if (packet.windowId < 0) {
-      }
+      //if (packet.windowId < 0) {
+      //  return;
+      //}
 
       if (packet.windowId >= 0) {
         if (!client._windowInventories) {
@@ -514,10 +528,64 @@ async function connectToJavaServer(proxy, client) {
               const wasAlreadySpawned =
                 existingPlayer && existingPlayer.spawned;
 
+              let skinId = 0;
+              let skinUrl = null;
+              let customTextureName = null;
+              if (playerData.properties) {
+                const texturesProp = playerData.properties.find(
+                  (p) => p.name === "textures",
+                );
+                if (texturesProp && texturesProp.value) {
+                  try {
+                    const decoded = Buffer.from(
+                      texturesProp.value,
+                      "base64",
+                    ).toString("utf8");
+                    const parsed = JSON.parse(decoded);
+                    if (parsed.textures && parsed.textures.SKIN) {
+                      skinUrl = parsed.textures.SKIN.url;
+                      customTextureName = generateCustomSkinName(
+                        playerData.name,
+                      );
+
+                      downloadSkin(skinUrl)
+                        .then((skinData) => {
+                          proxy.sendTexturePacket(
+                            client,
+                            customTextureName,
+                            skinData,
+                          );
+
+                          const existingPlayerForSkin =
+                            client.javaPlayers.get(uuid);
+                          if (
+                            existingPlayerForSkin &&
+                            existingPlayerForSkin.entityId
+                          ) {
+                            proxy.sendTextureChangePacket(
+                              client,
+                              existingPlayerForSkin.entityId,
+                              customTextureName,
+                            );
+                          }
+                        })
+                        .catch((err) => {
+                          /* do nothing */
+                        });
+                    }
+                  } catch (err) {
+                    /* do nothing */
+                  }
+                }
+              }
+
               const updatedPlayer = {
                 name: playerData.name || "Player",
                 gamemode: playerData.gamemode || 0,
                 ping: playerData.ping || 0,
+                skinId: skinId,
+                skinUrl: skinUrl,
+                customTextureName: customTextureName,
                 entityId: existingPlayer ? existingPlayer.entityId : null,
                 javaEntityId: existingPlayer
                   ? existingPlayer.javaEntityId
@@ -849,6 +917,7 @@ async function connectToJavaServer(proxy, client) {
         const z = packet.location.z;
 
         if (blockId <= 0 || blockId > 255) {
+          return;
         }
 
         //const particleName = `blockcrack_${blockId}_${metadata}`;
@@ -1013,7 +1082,9 @@ async function connectToJavaServer(proxy, client) {
 
       try {
         proxy.sendAddMobPacket(client, entityInfo);
-      } catch (err) {}
+      } catch (err) {
+        /* do nothing */
+      }
 
       const relevantMetadata = entityInfo.metadata.filter((m) => {
         return [12, 13, 16].includes(m.key) && m.type !== 5;
@@ -1037,6 +1108,7 @@ async function connectToJavaServer(proxy, client) {
           packet.entityId === undefined ||
           packet.type === undefined
         ) {
+          return;
         }
 
         if (
@@ -1044,15 +1116,18 @@ async function connectToJavaServer(proxy, client) {
           !Number.isFinite(packet.y) ||
           !Number.isFinite(packet.z)
         ) {
+          return;
         }
 
         if (!Number.isFinite(packet.yaw) || !Number.isFinite(packet.pitch)) {
+          return;
         }
 
         let lceEntityType = packet.type;
 
         const unsupportedEntityTypes = [78];
         if (unsupportedEntityTypes.includes(lceEntityType)) {
+          return;
         }
 
         if (packet.type === 10) {
@@ -1080,6 +1155,7 @@ async function connectToJavaServer(proxy, client) {
         }
 
         if (lceEntityType < 0 || lceEntityType > 200) {
+          return;
         }
 
         const lceEntityId = proxy.mapJavaEntityIdToLce(client, packet.entityId);
@@ -1146,7 +1222,9 @@ async function connectToJavaServer(proxy, client) {
 
         try {
           proxy.sendAddEntityPacket(client, entityInfo);
-        } catch (err) {}
+        } catch (err) {
+          /* do nothing */
+        }
 
         if (lceEntityType === 2) {
           entityInfo.waitingForItemData = true;
@@ -1174,7 +1252,7 @@ async function connectToJavaServer(proxy, client) {
               break;
             default:
               displayBlockId = 0;
-              break; //no display
+              break;
           }
           if (displayBlockId > 0) {
             minecartMetadata.push({ key: 20, type: 2, value: displayBlockId });
@@ -1693,6 +1771,7 @@ async function connectToJavaServer(proxy, client) {
     try {
       if (client.state === "play") {
         if (!packet || packet.entityId === undefined) {
+          return;
         }
 
         if (packet.entityId === client.javaPlayerEntityId) {
@@ -1918,7 +1997,9 @@ async function connectToJavaServer(proxy, client) {
             pitch: packet.pitch,
             onGround: true,
           });
-        } catch (err) {}
+        } catch (err) {
+          /* do nothing */
+        }
       }
     }
   });

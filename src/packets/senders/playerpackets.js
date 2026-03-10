@@ -43,7 +43,7 @@ function sendAddPlayerPacket(proxy, client, playerInfo) {
   writer.writeLong(0); //xuid
   writer.writeLong(0); //OnlineXuid
   writer.writeByte(0); //playerIndex
-  writer.writeInt(0); //skinId
+  writer.writeInt(playerInfo.skinId || 0); //skinId
   writer.writeInt(0); //capeId
   writer.writeInt(0); //uiGamePrivileges
 
