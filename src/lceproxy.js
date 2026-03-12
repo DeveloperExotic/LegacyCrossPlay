@@ -1,6 +1,9 @@
 ﻿/* --------------------------------------------------------------- */
 /*                          lceproxy.js                            */
 /* --------------------------------------------------------------- */
+
+//beware that there are a lot of magic numbers, need to do a refractor soon.
+
 const dgram = require("dgram");
 const net = require("net");
 const mc = require("minecraft-protocol");
@@ -8,12 +11,11 @@ const {
   GAME_PORT,
   WIN64_LAN_DISCOVERY_PORT,
   MINECRAFT_NET_VERSION,
-  USE_JAVA_ACCOUNT,
   USE_LEGACY_USERNAME,
   CUSTOM_USERNAME,
-  PROXY_NAME,
+  SERVERS,
 } = require("../constants");
-const msAuth = require("./auth");
+
 const PacketWriter = require("./packetwriter");
 const PacketReader = require("./packetreader");
 const LANBroadcast = require("./lanbroadcast");
@@ -46,8 +48,10 @@ class LCEProxy {
   constructor() {
     this.clients = [];
     this.udpSocket = null;
-    this.tcpServer = null;
+    this.tcpServers = [];
     this.broadcastInterval = null;
+    this.broadcasts = [];
+    this.serverConfigs = [];
     this.nextSmallId = 1;
     this.usedSmallIds = new Set();
 
@@ -63,10 +67,10 @@ class LCEProxy {
       0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
       0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23,
       0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
-      0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x3c, 0x3d, 0x3e, 0x46, 0x64, 0x65,
-      0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x82, 0x83, 0x96, 0x97,
-      0x98, 0x9a, 0x9d, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0,
-      0xd1, 0xfa, 0xfc, 0xfd, 0xfe, 0xff,
+      0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x3c, 0x3d, 0x3e, 0x46, 0x64,
+      0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x82, 0x83, 0x85,
+      0x96, 0x97, 0x98, 0x9a, 0x9d, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce,
+      0xcf, 0xd0, 0xd1, 0xfa, 0xfc, 0xfd, 0xfe, 0xff,
     ]);
   }
 
@@ -74,7 +78,7 @@ class LCEProxy {
     if (this.javaBlockMapping[javaBlockId] !== undefined) {
       return this.javaBlockMapping[javaBlockId];
     }
-    return 0;
+    return 1;
   }
 
   mapJavaParticleToLCE(particleId) {
@@ -159,7 +163,6 @@ class LCEProxy {
       return lceItemId;
     }
 
-    //console.log(`lce to java item ${lceItemId} not found`);
     return null;
   }
 
@@ -178,27 +181,17 @@ class LCEProxy {
   }
 
   async start() {
-    if (USE_JAVA_ACCOUNT) {
-      try {
-        await msAuth.authenticate();
-        console.log("Logged in as: " + msAuth.username);
-      } catch (err) {
-        console.log("\Failed to log into java account! (", err.message, ")");
-        console.log(
-          "If you enabled this by accident and would like to only join offline servers for free,",
-        );
-        console.log("set USE_JAVA_ACCOUNT to false in constants.js\n");
-        process.exit(1);
-      }
-    }
-
     this.startBroadcasting();
     this.startTCPServer();
 
     console.log("\nProxy is now running!");
     console.log(
-      'Java Edition server "' + PROXY_NAME + '" should appear on Minecraft.',
+      `Broadcasting ${SERVERS.length} server(s) as LAN games on Minecraft Legacy Edition.`,
     );
+    SERVERS.forEach((server, index) => {
+      const serverStr = typeof server === 'string' ? server : server.server;
+      console.log(`  - ${serverStr} on port ${GAME_PORT + index}`);
+    });
     console.log("Press Ctrl+C to stop.\n");
   }
 
@@ -208,73 +201,96 @@ class LCEProxy {
       this.udpSocket.setBroadcast(true);
     });
 
-    const broadcast = new LANBroadcast();
+    this.broadcasts = SERVERS.map((server, index) => {
+      const gamePort = GAME_PORT + index;
+      const serverStr = typeof server === 'string' ? server : server.server;
+      const parts = serverStr.split(':');
+      this.serverConfigs[index] = {
+        host: parts[0],
+        port: parts[1] ? parseInt(parts[1]) : 25565,
+        name: serverStr,
+        cracked: typeof server === 'object' ? server.cracked : false,
+        gamePort: gamePort,
+      };
+      return new LANBroadcast(serverStr, gamePort);
+    });
 
     this.broadcastInterval = setInterval(() => {
-      this.udpSocket.send(
-        broadcast.buffer,
-        0,
-        broadcast.buffer.length,
-        WIN64_LAN_DISCOVERY_PORT,
-        "255.255.255.255",
-      );
+      this.broadcasts.forEach((broadcast) => {
+        this.udpSocket.send(
+          broadcast.buffer,
+          0,
+          broadcast.buffer.length,
+          WIN64_LAN_DISCOVERY_PORT,
+          "255.255.255.255",
+        );
+      });
     }, 1000);
   }
 
   startTCPServer() {
-    this.tcpServer = net.createServer((socket) => {
-      socket.setNoDelay(true);
+    this.serverConfigs.forEach((serverConfig, index) => {
+      const tcpServer = net.createServer((socket) => {
+        socket.setNoDelay(true);
 
-      let smallId = 1;
-      while (this.usedSmallIds.has(smallId) && smallId <= 8) {
-        smallId++;
-      }
-
-      if (smallId > 8) {
-        socket.destroy();
-        return;
-      }
-
-      this.usedSmallIds.add(smallId);
-
-      const client = {
-        socket: socket,
-        smallId: smallId,
-        buffer: Buffer.alloc(0),
-        state: "prelogin",
-        javaClient: null,
-        breakingBlock: null,
-        javaPlayers: new Map(),
-        nextLceEntityId: 100,
-        javaToLceEntityId: new Map(),
-        javaEntities: new Map(),
-      };
-
-      this.clients.push(client);
-
-      const smallIdBuffer = Buffer.from([smallId]);
-      socket.write(smallIdBuffer);
-
-      socket.on("data", (data) => {
-        this.handleClientData(client, data);
-      });
-
-      socket.on("end", () => {
-        this.removeClient(client);
-      });
-
-      socket.on("error", (err) => {
-        this.removeClient(client);
-      });
-
-      socket.on("close", () => {
-        if (this.clients.indexOf(client) > -1) {
-          this.removeClient(client);
+        let smallId = 1;
+        while (this.usedSmallIds.has(smallId) && smallId <= 8) {
+          smallId++;
         }
-      });
-    });
 
-    this.tcpServer.listen(GAME_PORT, () => {});
+        if (smallId > 8) {
+          socket.destroy();
+          return;
+        }
+
+        this.usedSmallIds.add(smallId);
+
+        const client = {
+          socket: socket,
+          smallId: smallId,
+          buffer: Buffer.alloc(0),
+          state: "prelogin",
+          javaClient: null,
+          breakingBlock: null,
+          javaPlayers: new Map(),
+          nextLceEntityId: 100,
+          javaToLceEntityId: new Map(),
+          javaEntities: new Map(),
+          serverConfig: serverConfig,
+        };
+
+        this.clients.push(client);
+
+        const smallIdBuffer = Buffer.from([smallId]);
+        socket.write(smallIdBuffer);
+
+        socket.on("data", (data) => {
+          this.handleClientData(client, data);
+        });
+
+        socket.on("end", () => {
+          this.removeClient(client);
+        });
+
+        socket.on("error", (err) => {
+          this.removeClient(client);
+        });
+
+        socket.on("close", () => {
+          if (this.clients.indexOf(client) > -1) {
+            this.removeClient(client);
+          }
+        });
+      });
+
+      tcpServer.listen(serverConfig.gamePort, () => {
+        console.log(
+          `Server ${serverConfig.name} should now be visible on LCE.`,
+        );
+      });
+
+      this.tcpServers.push(tcpServer);
+    });
   }
 
   getPacketDataSize(packetId, data, offset) {
@@ -402,6 +418,25 @@ class LCEProxy {
 
         case 0x98:
           return 1 + 4;
+
+        case 0x82:
+          try {
+            let signSize = 1 + 4 + 2 + 4 + 1 + 1;
+            let pos = offset + 1 + 4 + 2 + 4 + 1 + 1;
+            for (let i = 0; i < 4; i++) {
+              if (pos + 2 > data.length) return null;
+              const strLen = data.readInt16BE(pos);
+              pos += 2;
+              signSize += 2 + strLen * 2;
+              pos += strLen * 2;
+            }
+            return signSize;
+          } catch (err) {
+            return null;
+          }
+
+        case 0x85:
+          return 1 + 1 + 4 + 4 + 4;
 
         default:
           return null;
@@ -559,6 +594,11 @@ class LCEProxy {
       case 0xfa: //CustomPayloadPacket - 250
         if (client.state === "play") {
           this.handleCustomPayload(client, packetData);
+        }
+        break;
+      case 0x82:
+        if (client.state === "play") {
+          this.handleSignUpdate(client, packetData);
         }
         break;
       case 0x6b: //SetCreativeModeSlotPacket - 107
@@ -806,13 +846,13 @@ class LCEProxy {
     this.sendPacket(client, 0x9a, writer.toBuffer());
   }
 
-  sendTextureChangePacket(client, entityId, textureName) {
+  sendTextureChangePacket(client, entityId, textureName, textureType = 0) {
     if (!client || !client.socket || client.socket.destroyed) {
       return;
     }
     const writer = new PacketWriter();
     writer.writeInt(entityId);
-    writer.writeByte(0);
+    writer.writeByte(textureType);
     writer.writeUTF(textureName);
 
     this.sendPacket(client, 0x9d, writer.toBuffer());
@@ -820,10 +860,13 @@ class LCEProxy {
 
   sendAddPlayerPacket(client, playerInfo) {
     let playerName = playerInfo.name || "undefined";
+    if (playerInfo.isNPC) {
+      playerName = "";
+    }
     if (playerName.length > 20) {
       playerName = playerName.substring(0, 20);
     }
-    if (playerName.length === 0) {
+    if (playerName.length === 0 && !playerInfo.isNPC) {
       playerName = "undefined";
     }
 
@@ -963,6 +1006,7 @@ class LCEProxy {
       92: "Cow",
       93: "Chicken",
       94: "Squid",
+      101: "Rabbit",
       95: "Wolf",
       96: "MushroomCow",
       97: "SnowMan",
@@ -970,6 +1014,7 @@ class LCEProxy {
       99: "VillagerGolem",
       100: "EntityHorse",
       120: "Villager",
+      71: "ItemFrame",
     };
     return typeMap[typeId] || "Unknown";
   }
@@ -1029,6 +1074,15 @@ class LCEProxy {
   }
   sendSetItemDataPacket(client, entity, itemData) {
     return packetSenders.sendSetItemDataPacket(this, client, entity, itemData);
+  }
+  sendSetItemFrameDataPacket(client, entity, itemData, rotation) {
+    return packetSenders.sendSetItemFrameDataPacket(
+      this,
+      client,
+      entity,
+      itemData,
+      rotation,
+    );
   }
   sendSetEntityDataPacket(client, entity) {
     return packetSenders.sendSetEntityDataPacket(this, client, entity);
@@ -1102,6 +1156,214 @@ class LCEProxy {
 
   sendVillagerTrades(client, windowId, packetData) {
     return packetSenders.sendVillagerTrades(this, client, windowId, packetData);
+  }
+
+  sendBookAsChestGUI(client, bookItem) {
+    if (!bookItem.nbt) {
+      return;
+    }
+
+    let bookTitle = "Book";
+    if (bookItem.nbt.value && bookItem.nbt.value.title) {
+      bookTitle = bookItem.nbt.value.title.value || "Book";
+    }
+
+    let pages = [];
+    if (bookItem.nbt.value && bookItem.nbt.value.pages) {
+      if (
+        bookItem.nbt.value.pages.value &&
+        bookItem.nbt.value.pages.value.value
+      ) {
+        pages = bookItem.nbt.value.pages.value.value;
+      } else if (Array.isArray(bookItem.nbt.value.pages)) {
+        pages = bookItem.nbt.value.pages;
+      }
+    }
+
+    if (pages.length === 0) {
+      return;
+    }
+
+    if (!client._bookGUI) {
+      client._bookGUI = {
+        pages: pages,
+        currentPage: 0,
+        clickActions: {},
+        bookTitle: bookTitle,
+      };
+    } else {
+      client._bookGUI.clickActions = {};
+      client._bookGUI.bookTitle = bookTitle;
+    }
+
+    const windowId = 1;
+    client.openWindowId = windowId;
+    client.openWindowType = "minecraft:chest";
+
+    const fakeOpenPacket = {
+      windowId: windowId,
+      inventoryType: "minecraft:chest",
+      slotCount: 54,
+      windowTitle: JSON.stringify({
+        text: `Written Book (${bookTitle})`,
+        extra: [],
+      }),
+    };
+
+    this.sendContainerOpenPacket(client, fakeOpenPacket);
+
+    this.updateBookGUIContents(client, windowId);
+  }
+
+  updateBookGUIContents(client, windowId) {
+    if (!client._bookGUI) return;
+
+    const currentPage = client._bookGUI.currentPage;
+    const pages = client._bookGUI.pages;
+    const pageContent = pages[currentPage];
+
+    const items = [];
+    for (let i = 0; i < 54; i++) {
+      items.push({ blockId: -1 });
+    }
+
+    if (currentPage > 0) {
+      items[48] = {
+        blockId: 35,
+        itemCount: 1,
+        itemDamage: 14,
+        displayName: "Previous Page",
+      };
+    }
+
+    if (currentPage < pages.length - 1) {
+      items[50] = {
+        blockId: 35,
+        itemCount: 1,
+        itemDamage: 5,
+        displayName: "Next Page",
+      };
+    }
+
+    try {
+      const pageText = JSON.parse(pageContent);
+
+      let lines = [];
+      if (Array.isArray(pageText)) {
+        lines = pageText;
+      } else if (pageText.extra) {
+        lines = pageText.extra;
+      } else {
+        lines = [pageText];
+      }
+
+      let slotIndex = 0;
+      for (let i = 0; i < lines.length && slotIndex < 36; i++) {
+        const line = lines[i];
+        let text = "";
+        let clickAction = null;
+
+        if (typeof line === "string") {
+          text = line;
+        } else if (line && typeof line === "object") {
+          if (line.text) {
+            text = line.text;
+          }
+          if (line.extra && Array.isArray(line.extra)) {
+            for (const extraPart of line.extra) {
+              if (typeof extraPart === "string") {
+                text += extraPart;
+              } else if (extraPart.text) {
+                text += extraPart.text;
+              }
+
+              if (extraPart.clickEvent) {
+                clickAction = {
+                  type: extraPart.clickEvent.action,
+                  value: extraPart.clickEvent.value,
+                };
+              }
+            }
+          }
+        }
+
+        text = text.replace(/§[0-9a-fk-or]/gi, "").replace(/\\n/g, "\n");
+
+        const textLines = text
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0 && l !== " ");
+
+        for (const textLine of textLines) {
+          if (slotIndex >= 36) break;
+
+          if (textLine.length > 0 && textLine !== " ") {
+            let itemId = 339;
+            let itemDamage = 0;
+            let isEnchanted = false;
+
+            if (clickAction) {
+              if (clickAction.type === "open_url") {
+                itemId = 345;
+                itemDamage = 0;
+              } else if (clickAction.type === "run_command") {
+                itemId = 340;
+                itemDamage = 0;
+              }
+              isEnchanted = true;
+            }
+
+            const chunks = [];
+            for (let pos = 0; pos < textLine.length; pos += 32) {
+              chunks.push(textLine.substring(pos, pos + 32));
+            }
+
+            for (const chunk of chunks) {
+              if (slotIndex >= 36) break;
+
+              items[slotIndex] = {
+                blockId: itemId,
+                itemCount: 1,
+                itemDamage: itemDamage,
+                displayName: chunk,
+                enchanted: isEnchanted,
+              };
+
+              if (clickAction) {
+                client._bookGUI.clickActions[slotIndex] = clickAction;
+              }
+
+              slotIndex++;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      items[0] = {
+        blockId: 339,
+        itemCount: 1,
+        itemDamage: 0,
+        displayName: "Error loading page",
+      };
+    }
+
+    let itemCount = 0;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].blockId !== -1) {
+        itemCount++;
+      }
+    }
+
+    const PacketWriter = require("./packetwriter");
+    const invWriter = new PacketWriter();
+    invWriter.writeByte(windowId);
+    invWriter.writeShort(items.length);
+
+    for (const item of items) {
+      this.writeItem(invWriter, item);
+    }
+
+    this.sendPacket(client, 0x68, invWriter.toBuffer());
   }
 
   //debug
@@ -1592,6 +1854,7 @@ class LCEProxy {
     const face = reader.readByte();
 
     const itemId = reader.readShort();
+
     let itemCount = 0;
     let itemAux = 0;
     if (itemId !== -1) {
@@ -1976,6 +2239,11 @@ class LCEProxy {
     const reader = new PacketReader(data.slice(1));
     const containerId = reader.readByte();
 
+    if (client.openWindowId === containerId) {
+      client.openWindowType = null;
+      client.openWindowId = null;
+    }
+
     if (client._currentChest && client._currentChest.windowId === containerId) {
       const posKey = client._currentChest.posKey;
       const chestData = this.openChests.get(posKey);
@@ -1993,6 +2261,11 @@ class LCEProxy {
       }
 
       delete client._currentChest;
+    }
+
+    if (client._bookGUI && containerId === client.openWindowId) {
+      delete client._bookGUI;
+      return;
     }
 
     //LCE uses special window IDs
@@ -2078,7 +2351,6 @@ class LCEProxy {
   placeTradeItems(client, windowId, tradeInfo, offerIndex) {
     //very broken, java requires you to send clicks with the current item in the slot
     //we have to track inventory and update it after each click, but this is complicated
-    //maybe in the future we can write a server plugin that handles this
     if (!client.javaClient) return;
 
     if (!client._windowInventories || !client._windowInventories[windowId]) {
@@ -2252,9 +2524,16 @@ class LCEProxy {
   }
 
   handleCraftItem(client, data) {
+    const debugLog = true;
+    if (client._craftingInProgress) {
+      if (debugLog) console.log("craft already in progress ignoring");
+      return;
+    }
+
     const reader = new PacketReader(data.slice(1));
     const uid = reader.readShort();
     const recipeId = reader.readInt();
+    //console.log(recipeId);
 
     const grid = recipeData[recipeId] || [
       "none",
@@ -2268,12 +2547,705 @@ class LCEProxy {
       "none",
     ];
 
-    //console.log(`recipe id: ${recipeId}`);
-    //console.log(`${grid[0]}, ${grid[1]}, ${grid[2]}, ${grid[3]}, ${grid[4]}, ${grid[5]}, ${grid[6]}, ${grid[7]}, ${grid[8]}`);
+    if (!client.inventory) {
+      if (debugLog) console.log("no inventory");
+      client._craftingInProgress = false;
+      return;
+    }
+
+    if (debugLog) console.log("id", recipeId);
+    client._craftingInProgress = true;
+    this.tryPlaceItemsInCraftingGrid(client, grid, recipeId);
   }
   handleJavaCrafting(client, data) {
     /* do nothing */
   }
+
+  getCraftingResult(grid) {
+    const craftingResults = {
+      0: { resultItemId: 5, resultCount: 4 },
+      1: { resultItemId: 5, resultCount: 4 },
+      2: { resultItemId: 5, resultCount: 4 },
+      3: { resultItemId: 5, resultCount: 4 },
+      4: { resultItemId: 280, resultCount: 4 },
+      44: { resultItemId: 58, resultCount: 1 },
+      46: { resultItemId: 54, resultCount: 1 },
+    };
+
+    const recipeStr = grid.join(",");
+    for (const [recipeId, recipe] of Object.entries(recipeData)) {
+      if (recipe.join(",") === recipeStr) {
+        return craftingResults[recipeId];
+      }
+    }
+    return null;
+  }
+
+  craftItemDirectly(client, grid, recipeId) {
+    if (!client.javaClient || !client.javaClient.write) {
+      return;
+    }
+
+    const craftingResults = this.getCraftingResult(grid);
+    if (!craftingResults) {
+      return;
+    }
+
+    const { resultItemId, resultCount } = craftingResults;
+
+    const requiredItems = this.findRequiredItems(client, grid);
+    if (!requiredItems) {
+      return;
+    }
+
+    requiredItems.forEach((req) => {
+      if (!req) return;
+      const slot = req.sourceSlot;
+      const item = client.inventory[slot];
+      if (item && item.itemCount > 1) {
+        item.itemCount--;
+        client.inventory[slot] = item;
+      } else {
+        client.inventory[slot] = { blockId: -1, itemCount: 0, itemDamage: 0 };
+      }
+    });
+
+    let addedToExisting = false;
+    for (let slot = 9; slot < 45; slot++) {
+      const item = client.inventory[slot];
+      if (item && item.blockId === resultItemId && item.itemCount < 64) {
+        item.itemCount = Math.min(64, (item.itemCount || 0) + resultCount);
+        client.inventory[slot] = item;
+        addedToExisting = true;
+        break;
+      }
+    }
+
+    if (!addedToExisting) {
+      for (let slot = 9; slot < 45; slot++) {
+        const item = client.inventory[slot];
+        if (!item || item.blockId === -1) {
+          client.inventory[slot] = {
+            blockId: resultItemId,
+            itemCount: resultCount,
+            itemDamage: 0,
+          };
+          break;
+        }
+      }
+    }
+
+    for (let i = 0; i < 45; i++) {
+      const item = client.inventory[i] || {
+        blockId: -1,
+        itemCount: 0,
+        itemDamage: 0,
+      };
+      try {
+        client.javaClient.write("set_slot", {
+          windowId: 0,
+          slot: i,
+          item: item,
+        });
+      } catch (err) {
+        /* do nothing */
+      }
+    }
+  }
+
+  tryPlaceItemsInCraftingGrid(client, grid, recipeId) {
+    const debugLog = true;
+    if (debugLog) console.log("placing items");
+    const itemNameToDamage = {
+      wool: 0,
+      orange_wool: 1,
+      magenta_wool: 2,
+      light_blue_wool: 3,
+      yellow_wool: 4,
+      lime_wool: 5,
+      pink_wool: 6,
+      gray_wool: 7,
+      light_gray_wool: 8,
+      cyan_wool: 9,
+      purple_wool: 10,
+      blue_wool: 11,
+      brown_wool: 12,
+      green_wool: 13,
+      red_wool: 14,
+      black_wool: 15,
+    };
+
+    const itemNameToJavaId = {
+      oak_log: 17,
+      birch_log: 17,
+      spruce_log: 17,
+      jungle_log: 17,
+      acacia_log: 162,
+      dark_oak_log: 162,
+      any_log: [17, 162],
+      any_plank: 5,
+      oak_plank: 5,
+      birch_planks: 5,
+      spruce_planks: 5,
+      jungle_planks: 5,
+      stick: 280,
+      cobblestone: 4,
+      iron_ingot: 265,
+      diamond: 264,
+      gold_ingot: 266,
+      any_wool: 35,
+      wool: 35,
+      sand: 12,
+      sandstone: 24,
+      sandstone_slab: 44,
+      quartz_slab: 44,
+      quartz_block: 155,
+      stone: 1,
+      nether_brick: 112,
+      snowball: 332,
+      clay: 337,
+      brick: 336,
+      nether_quartz: 406,
+      book: 340,
+      obsidian: 49,
+      iron_block: 42,
+      blaze_rod: 369,
+      chest: 54,
+      tripwire_hook: 131,
+      ender_eye: 381,
+      mossy_cobblestone: 48,
+      stonebrick: 98,
+      brick_block: 45,
+      charcoal: 263,
+      coal: 263,
+      glowstone: 348,
+      gunpowder: 289,
+      blaze_powder: 377,
+      pumpkin: 86,
+      torch: 50,
+      redstone: 331,
+      ender_pearl: 368,
+      slime_ball: 341,
+      paper: 339,
+      compass: 345,
+      apple: 260,
+      gold_block: 41,
+      gold_nugget: 371,
+      melon: 360,
+      carrot: 391,
+      brown_mushroom: 39,
+      red_mushroom: 40,
+      bowl: 281,
+      wheat: 296,
+      cocoa_beans: 351,
+      flint: 318,
+      string: 287,
+      fishing_rod: 346,
+      feather: 288,
+      glass: 20,
+      any_slab: 44,
+      inc_sac: 351,
+      red_dye: 351,
+      green_dye: 351,
+      lapis: 351,
+      purple_dye: 351,
+      cyan_dye: 351,
+      light_gray_dye: 351,
+      gray_dye: 351,
+      pink_dye: 351,
+      lime_dye: 351,
+      yellow_dye: 351,
+      light_blue_dye: 351,
+      magenta_dye: 351,
+      orange_dye: 351,
+      bone_meal: 351,
+      dandelion: 37,
+      rose: 38,
+      orange_wool: 35,
+      magenta_wool: 35,
+      light_blue_wool: 35,
+      yellow_wool: 35,
+      lime_wool: 35,
+      pink_wool: 35,
+      gray_wool: 35,
+      light_gray_wool: 35,
+      cyan_wool: 35,
+      purple_wool: 35,
+      blue_wool: 35,
+      brown_wool: 35,
+      green_wool: 35,
+      red_wool: 35,
+      black_wool: 35,
+    };
+
+    const requiredItems = [];
+    let allItemsFound = true;
+    const slotUsageCount = new Map();
+
+    for (let i = 0; i < 9; i++) {
+      const requiredItem = grid[i];
+      if (requiredItem === "none") {
+        requiredItems[i] = null;
+        continue;
+      }
+
+      const javaItemId = itemNameToJavaId[requiredItem];
+      if (!javaItemId) {
+        if (debugLog) console.log("could not find item for", requiredItem);
+        allItemsFound = false;
+        continue;
+      }
+
+      const acceptedIds = Array.isArray(javaItemId) ? javaItemId : [javaItemId];
+      if (debugLog)
+        console.log("looking for", requiredItem, "with id(s)", acceptedIds);
+
+      let foundSlot = null;
+      const windowId = client.openWindowId || 0;
+      const isCraftingTable =
+        client.openWindowType === "minecraft:crafting_table";
+
+      const inventoryToSearch =
+        isCraftingTable &&
+        client._windowInventories &&
+        client._windowInventories[windowId]
+          ? client._windowInventories[windowId]
+          : client.inventory;
+
+      const startSlot = isCraftingTable ? 10 : 9;
+      const endSlot = isCraftingTable ? 46 : 45;
+
+      for (let slot = startSlot; slot < endSlot; slot++) {
+        const item = inventoryToSearch[slot];
+        if (item && acceptedIds.includes(item.blockId)) {
+          const requiredDamage = itemNameToDamage[requiredItem];
+          if (
+            requiredDamage !== undefined &&
+            item.itemDamage !== requiredDamage
+          ) {
+            if (debugLog)
+              console.log(
+                "found item at slot",
+                slot,
+                "but damage does not match. need",
+                requiredDamage,
+                "got",
+                item.itemDamage,
+              );
+            continue;
+          }
+          if (debugLog) console.log("found", requiredItem, "at slot", slot);
+
+          const itemCount = item.itemCount || 1;
+          const usedCount = slotUsageCount.get(slot) || 0;
+
+          if (usedCount < itemCount) {
+            foundSlot = slot;
+            let gridSlot;
+            if (isCraftingTable) {
+              gridSlot = i + 1;
+            } else {
+              const slot2x2Map = { 0: 1, 1: 2, 3: 3, 4: 4 };
+              gridSlot = slot2x2Map[i] || i + 1;
+            }
+
+            requiredItems[i] = {
+              sourceSlot: slot,
+              itemId: item.blockId,
+              gridSlot: gridSlot,
+            };
+            slotUsageCount.set(slot, usedCount + 1);
+            break;
+          }
+        }
+      }
+
+      if (!foundSlot) {
+        if (debugLog)
+          console.log("could not find", requiredItem, "in inventory");
+        allItemsFound = false;
+      }
+    }
+
+    if (!allItemsFound) {
+      if (debugLog) console.log("not all items found");
+      client._craftingInProgress = false;
+      return;
+    }
+
+    if (debugLog) console.log("all items found, placing");
+    this.placeItemsInGrid(client, requiredItems);
+  }
+
+  placeItemsInGrid(client, requiredItems) {
+    const debugLog = true;
+    if (!client.javaClient || !client.javaClient.write) {
+      client._craftingInProgress = false;
+      return;
+    }
+    if (debugLog) console.log("placing", requiredItems.length, "items");
+
+    if (!client.windowClickAction) {
+      client.windowClickAction = 1;
+    }
+
+    const clicks = [];
+    const slotGroups = new Map();
+
+    for (let i = 0; i < requiredItems.length; i++) {
+      if (!requiredItems[i]) continue;
+      const { sourceSlot, gridSlot, itemId } = requiredItems[i];
+
+      if (!slotGroups.has(sourceSlot)) {
+        slotGroups.set(sourceSlot, []);
+      }
+      slotGroups.get(sourceSlot).push({ gridSlot, itemId });
+    }
+
+    let lastSourceSlot = null;
+    let lastSourceItem = null;
+
+    for (const [sourceSlot, gridSlots] of slotGroups) {
+      const windowId = client.openWindowId || 0;
+      const isCraftingTable =
+        client.openWindowType === "minecraft:crafting_table";
+
+      const inventoryToUse =
+        isCraftingTable &&
+        client._windowInventories &&
+        client._windowInventories[windowId]
+          ? client._windowInventories[windowId]
+          : client.inventory;
+
+      const sourceItem = inventoryToUse[sourceSlot];
+      if (!sourceItem) continue;
+
+      lastSourceSlot = sourceSlot;
+      lastSourceItem = sourceItem;
+
+      clicks.push({
+        windowId: windowId,
+        slot: sourceSlot,
+        mouseButton: 0,
+        action: client.windowClickAction++,
+        mode: 0,
+        item: sourceItem,
+      });
+
+      for (const { gridSlot, itemId } of gridSlots) {
+        clicks.push({
+          windowId: windowId,
+          slot: gridSlot,
+          mouseButton: 1,
+          action: client.windowClickAction++,
+          mode: 0,
+          item: { blockId: -1, itemCount: 0, itemDamage: 0 },
+        });
+      }
+
+      if (gridSlots.length < sourceItem.itemCount) {
+        clicks.push({
+          windowId: windowId,
+          slot: sourceSlot,
+          mouseButton: 0,
+          action: client.windowClickAction++,
+          mode: 0,
+          item: { blockId: -1, itemCount: 0, itemDamage: 0 },
+        });
+      }
+    }
+
+    let cursorState = { blockId: -1, itemCount: 0 };
+
+    const tempListener = (packet) => {
+      if (packet.windowId === 0) {
+        const slotName =
+          packet.slot === 0
+            ? "RESULT"
+            : packet.slot >= 1 && packet.slot <= 9
+              ? `GRID ${packet.slot}`
+              : `INV ${packet.slot}`;
+      }
+      if (packet.windowId === -1 && packet.slot === -1) {
+        const oldCursor = `${cursorState.blockId}:${cursorState.itemCount}`;
+        cursorState = packet.item || { blockId: -1, itemCount: 0 };
+        const newCursor = `${cursorState.blockId}:${cursorState.itemCount}`;
+      }
+    };
+    client.javaClient.on("set_slot", tempListener);
+
+    setTimeout(() => {
+      client.javaClient.removeListener("set_slot", tempListener);
+    }, 100);
+
+    let delay = 0;
+    clicks.forEach((click, index) => {
+      setTimeout(() => {
+        try {
+          client.javaClient.write("window_click", click);
+        } catch (err) {
+          /* do nothing */
+        }
+      }, delay);
+      delay += 1;
+    });
+
+    const usedGridSlots = requiredItems.filter((r) => r).map((r) => r.gridSlot);
+
+    setTimeout(() => {
+      this.checkCraftingResult(client, usedGridSlots);
+    }, delay + 50);
+  }
+
+  checkCraftingResult(client, usedGridSlots) {
+    const debugLog = true;
+    if (debugLog) console.log("checking crafting result");
+    const windowId = client.openWindowId || 0;
+
+    const checkForResult = () => {
+      const inventoryToCheck =
+        windowId !== 0 &&
+        client._windowInventories &&
+        client._windowInventories[windowId]
+          ? client._windowInventories[windowId]
+          : client.inventory;
+
+      if (debugLog) console.log("slot 0 content", inventoryToCheck[0]);
+
+      if (!inventoryToCheck || !inventoryToCheck[0]) {
+        if (debugLog) console.log("no result slot found");
+        return null;
+      }
+
+      const resultItem = inventoryToCheck[0];
+      const itemId = resultItem.blockId;
+
+      if (itemId === -1 || itemId === null || itemId === undefined) {
+        if (debugLog) console.log("no valid result item");
+        return null;
+      }
+
+      if (debugLog) console.log("found result item:", itemId);
+      return resultItem;
+    };
+
+    const resultItem = checkForResult();
+    if (resultItem) {
+      this.takeCraftedItemAndClear(client, usedGridSlots);
+      return;
+    }
+
+    let handledResult = false;
+    const resultListener = (packet) => {
+      if (packet.windowId === windowId && packet.slot === 0) {
+        if (packet.item && packet.item.blockId !== -1) {
+          if (client.javaClient) {
+            client.javaClient.removeListener("set_slot", resultListener);
+          }
+
+          if (!handledResult) {
+            handledResult = true;
+            if (debugLog)
+              console.log("received set_slot for result, taking item");
+            setTimeout(() => {
+              this.takeCraftedItemAndClear(client, usedGridSlots);
+            }, 50);
+          }
+        }
+      }
+    };
+
+    if (client.javaClient) {
+      client.javaClient.on("set_slot", resultListener);
+
+      setTimeout(() => {
+        if (client.javaClient) {
+          client.javaClient.removeListener("set_slot", resultListener);
+        }
+
+        if (!handledResult) {
+          const finalCheck = checkForResult();
+          if (finalCheck) {
+            handledResult = true;
+            this.takeCraftedItemAndClear(client, usedGridSlots);
+          } else {
+            client._craftingInProgress = false;
+          }
+        }
+      }, 150);
+    }
+  }
+
+  takeCraftedItemAndClear(client, usedGridSlots) {
+    const debugLog = true;
+    if (debugLog) console.log("taking crafted item and clearing grid");
+    if (!client.javaClient || !client.javaClient.write) {
+      if (debugLog) console.log("no java client available");
+      client._craftingInProgress = false;
+      return;
+    }
+
+    if (!client.windowClickAction) {
+      client.windowClickAction = 1;
+    }
+
+    const windowId = client.openWindowId || 0;
+    const isCraftingTable = windowId !== 0;
+    const inventoryToCheck =
+      isCraftingTable &&
+      client._windowInventories &&
+      client._windowInventories[windowId]
+        ? client._windowInventories[windowId]
+        : client.inventory;
+
+    const resultItem = inventoryToCheck[0];
+    if (!resultItem || resultItem.blockId === -1) {
+      return;
+    }
+
+    const resultItemId = resultItem.blockId;
+    const resultCount = resultItem.itemCount || 1;
+
+    const slotsWithSameItem = [];
+    const slotRange = isCraftingTable ? [10, 46] : [9, 45];
+    for (let slot = slotRange[0]; slot < slotRange[1]; slot++) {
+      const item = inventoryToCheck[slot];
+      if (item && item.blockId === resultItemId) {
+        slotsWithSameItem.push({
+          slot: slot,
+          count: item.itemCount || 1,
+          hasSpace: (item.itemCount || 1) < 64,
+        });
+      }
+    }
+
+    const targetSlots = [];
+    let remainingCount = resultCount;
+
+    for (const slotInfo of slotsWithSameItem) {
+      if (slotInfo.hasSpace && remainingCount > 0) {
+        const spaceAvailable = 64 - slotInfo.count;
+        const amountToPlace = Math.min(spaceAvailable, remainingCount);
+        targetSlots.push({ slot: slotInfo.slot, amount: amountToPlace });
+        remainingCount -= amountToPlace;
+      }
+    }
+
+    if (remainingCount > 0) {
+      const hotbarSlots = isCraftingTable
+        ? [37, 38, 39, 40, 41, 42, 43, 44, 45]
+        : [36, 37, 38, 39, 40, 41, 42, 43, 44];
+      for (const slot of hotbarSlots) {
+        if (remainingCount <= 0) break;
+        const item = inventoryToCheck[slot];
+        if (!item || item.blockId === -1) {
+          const amountToPlace = Math.min(64, remainingCount);
+          targetSlots.push({ slot: slot, amount: amountToPlace });
+          remainingCount -= amountToPlace;
+        }
+      }
+    }
+
+    if (remainingCount > 0) {
+      const mainInvSlots = isCraftingTable
+        ? [
+            10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+            27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+          ]
+        : [
+            9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+            26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+          ];
+      for (const slot of mainInvSlots) {
+        if (remainingCount <= 0) break;
+        const item = inventoryToCheck[slot];
+        if (!item || item.blockId === -1) {
+          const amountToPlace = Math.min(64, remainingCount);
+          targetSlots.push({ slot: slot, amount: amountToPlace });
+          remainingCount -= amountToPlace;
+        }
+      }
+    }
+
+    setTimeout(() => {
+      try {
+        client.javaClient.write("window_click", {
+          windowId: windowId,
+          slot: -999,
+          mouseButton: 0,
+          action: client.windowClickAction++,
+          mode: 0,
+          item: { blockId: -1, itemCount: 0, itemDamage: 0 },
+        });
+        if (debugLog) console.log("clicked slot -999");
+      } catch (err) {}
+
+      setTimeout(() => {
+        try {
+          client.javaClient.write("window_click", {
+            windowId: windowId,
+            slot: 0,
+            mouseButton: 0,
+            action: client.windowClickAction++,
+            mode: 1,
+            item: resultItem,
+          });
+          if (debugLog) console.log("shift clicked result");
+        } catch (err) {
+          /* do nothing */
+        }
+      }, 1);
+    }, 1);
+
+    setTimeout(() => {
+      setTimeout(() => {
+        let foundPlanks = false;
+        for (let i = 9; i < 45; i++) {
+          const item = client.inventory[i];
+          if (item && item.blockId === 5) {
+            foundPlanks = true;
+          }
+        }
+
+        const inventoryToCheck =
+          windowId !== 0 &&
+          client._windowInventories &&
+          client._windowInventories[windowId]
+            ? client._windowInventories[windowId]
+            : client.inventory;
+
+        if (debugLog) console.log("clearing grid slots", usedGridSlots);
+        usedGridSlots.forEach((gridSlot, index) => {
+          setTimeout(() => {
+            const gridItem = inventoryToCheck[gridSlot];
+            if (gridItem && gridItem.blockId !== -1) {
+              try {
+                client.javaClient.write("window_click", {
+                  windowId: windowId,
+                  slot: gridSlot,
+                  mouseButton: 0,
+                  action: client.windowClickAction++,
+                  mode: 1,
+                  item: gridItem,
+                });
+                if (debugLog) console.log("shift clicked grid", gridSlot);
+              } catch (err) {
+                /* do nothing */
+              }
+            } else {
+              if (debugLog) console.log("grid slot", gridSlot, "already empty");
+            }
+          }, index * 1);
+        });
+      }, 1);
+    }, 1);
+
+    setTimeout(() => {
+      if (debugLog) console.log("craft complete clearing flag");
+      client._craftingInProgress = false;
+    }, 200);
+  }
+
   placeCraftingItems(
     client,
     windowId,
@@ -2281,7 +3253,23 @@ class LCEProxy {
     inventoryWindow,
     startAction,
   ) {
-    /* do nothing */
+    /* do nothing - but keep this here so nothing breaks */
+  }
+
+  sendInventoryUpdate(client) {
+    if (!client.inventory || !client.javaClient) {
+      return;
+    }
+
+    for (let i = 0; i < 45; i++) {
+      const item = client.inventory[i];
+      const PacketWriter = require("./packetwriter");
+      const slotWriter = new PacketWriter();
+      slotWriter.writeByte(0);
+      slotWriter.writeShort(i);
+      this.writeItem(slotWriter, item);
+      this.sendPacket(client, 0x67, slotWriter.toBuffer());
+    }
   }
 
   //LCE automatically accepts a trade, whilst java requires items in specific slots
@@ -2318,6 +3306,54 @@ class LCEProxy {
     const clickType = reader.readByte();
 
     const item = this.readItemWithNBT(reader);
+
+    if (client._bookGUI && containerId === client.openWindowId) {
+      if (slotNum === 48 && client._bookGUI.currentPage > 0) {
+        client._bookGUI.currentPage--;
+        this.updateBookGUIContents(client, containerId);
+        return;
+      }
+
+      if (
+        slotNum === 50 &&
+        client._bookGUI.currentPage < client._bookGUI.pages.length - 1
+      ) {
+        client._bookGUI.currentPage++;
+        this.updateBookGUIContents(client, containerId);
+        return;
+      }
+
+      if (
+        client._bookGUI.clickActions &&
+        client._bookGUI.clickActions[slotNum]
+      ) {
+        const action = client._bookGUI.clickActions[slotNum];
+
+        if (action.type === "run_command" && action.value) {
+          if (client.javaClient && client.javaClient.write) {
+            try {
+              client.javaClient.write("chat", { message: action.value });
+            } catch (err) {
+              /* do nothing */
+            }
+          }
+
+          const PacketWriter = require("./packetwriter");
+          const writer = new PacketWriter();
+          writer.writeByte(containerId & 0xff);
+          this.sendPacket(client, 0x65, writer.toBuffer());
+          delete client._bookGUI;
+        }
+      }
+
+      const PacketWriter = require("./packetwriter");
+      const rejectWriter = new PacketWriter();
+      rejectWriter.writeByte(containerId & 0xff);
+      rejectWriter.writeShort(uid);
+      rejectWriter.writeBoolean(false);
+      this.sendPacket(client, 0x6a, rejectWriter.toBuffer());
+      return;
+    }
 
     //0=Normal click
     //1=Shift click
@@ -2357,6 +3393,34 @@ class LCEProxy {
           item: javaItem || { blockId: -1 },
         };
         client.javaClient.write("window_click", clickPacket);
+      } catch (err) {
+        /* do nothing */
+      }
+    }
+  }
+
+  handleSignUpdate(client, data) {
+    const reader = new PacketReader(data.slice(1));
+    const x = reader.readInt();
+    const y = reader.readShort();
+    const z = reader.readInt();
+    const verified = reader.readBoolean();
+    const censored = reader.readBoolean();
+
+    const text1 = reader.readUtf();
+    const text2 = reader.readUtf();
+    const text3 = reader.readUtf();
+    const text4 = reader.readUtf();
+
+    if (client.javaClient && client.javaClient.write) {
+      try {
+        client.javaClient.write("update_sign", {
+          location: { x: x, y: y, z: z },
+          text1: JSON.stringify({ text: text1 }),
+          text2: JSON.stringify({ text: text2 }),
+          text3: JSON.stringify({ text: text3 }),
+          text4: JSON.stringify({ text: text4 }),
+        });
       } catch (err) {
         /* do nothing */
       }
@@ -2750,8 +3814,8 @@ class LCEProxy {
       this.udpSocket.close();
     }
 
-    if (this.tcpServer) {
-      this.tcpServer.close();
+    if (this.tcpServers && this.tcpServers.length > 0) {
+      this.tcpServers.forEach((server) => server.close());
     }
 
     this.clients.forEach((client) => {

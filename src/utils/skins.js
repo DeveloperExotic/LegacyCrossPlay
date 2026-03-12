@@ -111,9 +111,49 @@ function generateCustomSkinName(playerName) {
   return `ugcskin${skinId.toString(16).toUpperCase().padStart(8, "0")}.png`;
 }
 
+function generateCustomCapeName(playerName) {
+  let hash = 0;
+  for (let i = 0; i < playerName.length; i++) {
+    hash = (hash << 5) - hash + playerName.charCodeAt(i);
+    hash = hash & hash;
+  }
+  const capeId = (Math.abs(hash) & 0x7fffffe0) | 0x20;
+  return `ugccape${capeId.toString(16).toUpperCase().padStart(8, "0")}.png`;
+}
+
+function downloadCape(url) {
+  return new Promise((resolve, reject) => {
+    if (skinCache.has(url)) {
+      resolve(skinCache.get(url));
+      return;
+    }
+
+    const protocol = url.startsWith("https") ? https : http;
+
+    protocol
+      .get(url, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          const capeData = Buffer.concat(chunks);
+          skinCache.set(url, capeData);
+          resolve(capeData);
+        });
+      })
+      .on("error", reject);
+  });
+}
+
 module.exports = {
   downloadSkin,
+  downloadCape,
   generateCustomSkinName,
+  generateCustomCapeName,
   skinCache,
 };
 /* --------------------------------------------------------------- */

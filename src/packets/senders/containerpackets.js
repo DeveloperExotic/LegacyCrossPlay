@@ -23,9 +23,21 @@ function sendContainerOpenPacket(proxy, client, packet) {
   const windowType = packet.inventoryType || packet.windowType;
   const lceType = windowTypeMapping[windowType] || 0;
   const containerId = packet.windowId;
-  const title = packet.windowTitle
-    ? JSON.parse(packet.windowTitle).text || ""
-    : "";
+
+  let title = "";
+  if (packet.windowTitle) {
+    try {
+      const parsed = JSON.parse(packet.windowTitle);
+      if (parsed.extra && parsed.extra.length > 0 && parsed.extra[0].text) {
+        title = parsed.extra[0].text;
+      } else if (parsed.text) {
+        title = parsed.text;
+      }
+    } catch (err) {
+      title = packet.windowTitle;
+    }
+  }
+
   const size = packet.slotCount || 27;
   const customName = title.length > 0;
 
@@ -44,7 +56,11 @@ function sendContainerOpenPacket(proxy, client, packet) {
     writer.writeUtf(title);
   }
 
-  proxy.sendPacket(client, 0x64, writer.toBuffer());
+  const buffer = writer.toBuffer();
+  const sendTime = Date.now();
+
+  client._lastContainerOpenTime = sendTime;
+  proxy.sendPacket(client, 0x64, buffer);
 }
 
 function sendVillagerTrades(proxy, client, windowId, packetData) {

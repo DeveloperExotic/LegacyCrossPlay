@@ -133,6 +133,8 @@ function createItemMapping() {
     383: 383, //spawn_egg
     384: 384, //experience_bottle
     385: 385, //fire_charge
+    386: 340, //writable_book -> book
+    387: 340, //written_book -> book
     388: 388, //emerald
     389: 389, //item_frame
     390: 390, //flower_pot
@@ -159,6 +161,20 @@ function createItemMapping() {
     419: 419, //diamond_horse_armor
     420: 420, //lead
     421: 421, //name_tag
+    423: 363, //raw_mutton -> raw_beef
+    424: 364, //cooked_mutton -> cooked_beef
+    411: 363, //raw_rabbit -> raw_beef
+    412: 364, //cooked_rabbit -> cooked_beef
+    413: 282, //rabbit_stew -> mushroom_stew
+    414: 371, //rabbit_foot -> gold_nugget
+    415: 334, //rabbit_hide -> leather
+    165: 95, //slime_block -> lime_stained_glass
+    387: 340, //written_book -> book
+    427: 324, //spruce_door -> oak_door
+    428: 324, //birch_door -> oak_door
+    429: 324, //jungle_door -> oak_door
+    430: 324, //acacia_door -> oak_door
+    431: 324, //dark_oak_door -> oak_door
     2256: 2256, //record_13
     2257: 2257, //record_cat
     2258: 2258, //record_blocks

@@ -58,6 +58,17 @@ class PacketReader {
     return str;
   }
 
+  readUtf() {
+    const length = this.readShort();
+    let str = "";
+    for (let i = 0; i < length; i++) {
+      const charCode = this.buffer.readUInt16BE(this.offset);
+      this.offset += 2;
+      str += String.fromCharCode(charCode);
+    }
+    return str;
+  }
+
   readDouble() {
     const value = this.buffer.readDoubleBE(this.offset);
     this.offset += 8;

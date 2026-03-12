@@ -1,20 +1,16 @@
 /* --------------------------------------------------------------- */
 /*                         lanbroadcast.js                         */
 /* --------------------------------------------------------------- */
-const {
-  MINECRAFT_NET_VERSION,
-  GAME_PORT,
-  PROXY_NAME,
-} = require("../constants");
+const { MINECRAFT_NET_VERSION } = require("../constants");
 
 class LANBroadcast {
-  constructor() {
+  constructor(serverName, gamePort) {
     this.buffer = Buffer.allocUnsafe(86);
     this.buffer.writeUInt32LE(0x4d434c4e, 0);
     this.buffer.writeUInt16LE(MINECRAFT_NET_VERSION, 4);
-    this.buffer.writeUInt16LE(GAME_PORT, 6);
+    this.buffer.writeUInt16LE(gamePort, 6);
 
-    const hostName = PROXY_NAME;
+    const hostName = serverName || "Minecraft Server";
     for (let i = 0; i < 32; i++) {
       const char = i < hostName.length ? hostName.charCodeAt(i) : 0;
       this.buffer.writeUInt16LE(char, 8 + i * 2);

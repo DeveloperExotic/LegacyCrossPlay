@@ -1,21 +1,27 @@
 /* --------------------------------------------------------------- */
 /*                          constants.js                           */
 /* --------------------------------------------------------------- */
+const USE_LEGACY_USERNAME = false;
+const CUSTOM_USERNAME = "LCE_Player";
+
+const SERVERS = [
+  { server: "us-1.creepernation.net:25568", cracked: true },
+  { server: "hypixel.net", cracked: false },
+  { server: "localhost:25564", cracked: true },
+];
+
+/* DONT TOUCH THESE BELOW THINGS UNLESS YOU KNOW WHAT YOURE DOING! */
+
 const GAME_PORT = 25565;
 const WIN64_LAN_DISCOVERY_PORT = 25566;
 const MINECRAFT_NET_VERSION = 560;
-const JAVA_SERVER_HOST = "localhost"; // The java edition server host that the proxy will connect to.
-const JAVA_SERVER_PORT = 25564; // The java edition server port that the proxy will connect to.
-const PROXY_NAME = JAVA_SERVER_HOST + ":" + JAVA_SERVER_PORT;
+
 module.exports = {
   GAME_PORT,
   WIN64_LAN_DISCOVERY_PORT,
   MINECRAFT_NET_VERSION,
-  USE_JAVA_ACCOUNT: false, // Allows use of a microsoft java account for online servers. (Disable this if you don't own java - you'll only be able to connect to cracked/offline servers.)
-  USE_LEGACY_USERNAME: false, // You can use your legacy edition username, or a custom username below. (offline servers only)
-  CUSTOM_USERNAME: "LCE_Player", // The custom username used if USE_LEGACY_USERNAME is false. Ensure it's UNDER 16 characters. (offline servers only)
-  JAVA_SERVER_HOST,
-  JAVA_SERVER_PORT,
-  PROXY_NAME,
+  USE_LEGACY_USERNAME,
+  CUSTOM_USERNAME,
+  SERVERS,
 };
 /* --------------------------------------------------------------- */

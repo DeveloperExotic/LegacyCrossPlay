@@ -180,7 +180,7 @@
 
 # UI
 
-- [ ] Crafting _(Hard to implement, coming soon)_
+- [x] Crafting
 - [x] Brewing stand
 - [x] Furnace
 - [x] Villager trading

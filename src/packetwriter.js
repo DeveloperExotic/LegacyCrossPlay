@@ -64,6 +64,15 @@ class PacketWriter {
     this.buffers.push(utf8Buffer);
   }
 
+  writeUtf(str) {
+    this.writeShort(str.length);
+    for (let i = 0; i < str.length; i++) {
+      const buf = Buffer.allocUnsafe(2);
+      buf.writeUInt16BE(str.charCodeAt(i), 0);
+      this.buffers.push(buf);
+    }
+  }
+
   writeString(str) {
     this.writeShort(str.length);
     for (let i = 0; i < str.length; i++) {

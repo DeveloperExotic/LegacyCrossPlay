@@ -336,16 +336,9 @@ function sendEntityMetadataPacket(proxy, client, entity, metadata) {
 
   for (const item of metadata) {
     if (!item || item.type === undefined || item.key === undefined) {
-      console.error(
-        `[METADATA ERROR] entityId=${entity.entityId} invalid metadata item:`,
-        JSON.stringify(item),
-      );
       continue;
     }
     if (item.type < 0 || item.type > 5) {
-      console.error(
-        `[METADATA ERROR] entityId=${entity.entityId} invalid type=${item.type} key=${item.key}`,
-      );
       continue;
     }
     if (item.type === 5) {
@@ -471,9 +464,26 @@ function sendSetEquippedItemPacket(proxy, client, entity, slot, item) {
     return;
   }
 
-  const javaItemId = item.blockId;
+  let javaItemId = item.blockId;
   const count = item.itemCount || 1;
   let damage = item.itemDamage || 0;
+
+  if (javaItemId === 162) {
+    javaItemId = 35;
+    damage = 1;
+  }
+
+  if (javaItemId === 5 && (damage === 4 || damage === 5)) {
+    damage = 0;
+  }
+
+  if (javaItemId === 383 && damage === 101) {
+    damage = 93;
+  }
+
+  if (javaItemId === 165) {
+    damage = 5;
+  }
 
   const lceItemId = proxy.mapJavaItemToLCE(javaItemId);
 
@@ -502,7 +512,7 @@ function sendSetEquippedItemPacket(proxy, client, entity, slot, item) {
     return;
   }
 
-  writer.writeShort(-1);
+  proxy.writeItemNBT(writer, item);
 
   proxy.sendPacket(client, 0x05, writer.toBuffer());
 }
@@ -554,7 +564,27 @@ function sendTileUpdatePacket(proxy, client, x, y, z, blockId, metadata) {
 }
 
 function sendSetItemDataPacket(proxy, client, entity, itemData) {
-  const lceItemId = proxy.mapJavaItemToLCE(itemData.blockId);
+  let damage = itemData.itemDamage || 0;
+  let javaItemId = itemData.blockId;
+
+  if (javaItemId === 162) {
+    javaItemId = 35;
+    damage = 1;
+  }
+
+  if (javaItemId === 5 && (damage === 4 || damage === 5)) {
+    damage = 0;
+  }
+
+  if (javaItemId === 383 && damage === 101) {
+    damage = 93;
+  }
+
+  if (javaItemId === 165) {
+    damage = 5;
+  }
+
+  const lceItemId = proxy.mapJavaItemToLCE(javaItemId);
 
   if (lceItemId === -1 || lceItemId === 0) {
     return;
@@ -567,9 +597,26 @@ function sendSetItemDataPacket(proxy, client, entity, itemData) {
 
   writer.writeShort(lceItemId);
   writer.writeByte(itemData.itemCount);
-  writer.writeShort(itemData.itemDamage);
+  writer.writeShort(damage);
 
-  writer.writeShort(-1);
+  proxy.writeItemNBT(writer, itemData);
+
+  writer.writeByte(0x7f);
+
+  const payload = writer.toBuffer();
+
+  proxy.sendPacket(client, 0x28, payload);
+}
+
+function sendSetItemFrameDataPacket(proxy, client, entity, itemData, rotation) {
+  const writer = new PacketWriter();
+  writer.writeInt(entity.entityId);
+
+  writer.writeByte((5 << 5) | 2);
+  proxy.writeItem(writer, itemData);
+
+  writer.writeByte((0 << 5) | 3);
+  writer.writeByte(rotation & 0xff);
 
   writer.writeByte(0x7f);
 
@@ -642,6 +689,7 @@ module.exports = {
   sendEntityEventPacket,
   sendSetEquippedItemPacket,
   sendSetItemDataPacket,
+  sendSetItemFrameDataPacket,
   sendSetEntityDataPacket,
   sendUpdateAttributesPacket,
   sendSetEntityLinkPacket,

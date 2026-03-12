@@ -1,11 +1,11 @@
 /* --------------------------------------------------------------- */
 /*                      javaclienthandler.js                       */
 /* --------------------------------------------------------------- */
+
+//beware that there are a lot of magic numbers, need to do a refractor soon.
+
 const mc = require("minecraft-protocol");
 const {
-  JAVA_SERVER_HOST,
-  JAVA_SERVER_PORT,
-  USE_JAVA_ACCOUNT,
   USE_LEGACY_USERNAME,
   CUSTOM_USERNAME,
 } = require("../constants");
@@ -15,13 +15,20 @@ const { mapJavaItemToLCE, mapJavaBlockToLCE } = require("./mappings");
 const { mapJavaSoundToLCE } = require("./mappings/soundmapping");
 const { parseChatComponent, stripColorCodes } = require("./utils/chat");
 const { countSetBits, compressRLE } = require("./utils/chunk");
-const { downloadSkin, generateCustomSkinName } = require("./utils/skins");
+const {
+  downloadSkin,
+  downloadCape,
+  generateCustomSkinName,
+  generateCustomCapeName,
+} = require("./utils/skins");
 const zlib = require("zlib");
 
 async function connectToJavaServer(proxy, client) {
+  const serverConfig = client.serverConfig;
+
   let authConfig = {
-    host: JAVA_SERVER_HOST,
-    port: JAVA_SERVER_PORT,
+    host: serverConfig.host,
+    port: serverConfig.port,
     username: !USE_LEGACY_USERNAME
       ? CUSTOM_USERNAME
       : client.username || "undefined",
@@ -29,11 +36,11 @@ async function connectToJavaServer(proxy, client) {
     version: "1.8.9",
   };
 
-  if (USE_JAVA_ACCOUNT) {
+  if (!serverConfig.cracked) {
     if (msAuth.isAuthenticated()) {
       authConfig = {
-        host: JAVA_SERVER_HOST,
-        port: JAVA_SERVER_PORT,
+        host: serverConfig.host,
+        port: serverConfig.port,
         username: msAuth.username,
         session: {
           accessToken: msAuth.accessToken,
@@ -46,7 +53,22 @@ async function connectToJavaServer(proxy, client) {
         version: "1.8.9",
       };
     } else {
-      console.error("Not authenticated! This should not happen.");
+      console.log(`Server ${serverConfig.name} requires authentication. Authenticating...`);
+      await msAuth.authenticate();
+      authConfig = {
+        host: serverConfig.host,
+        port: serverConfig.port,
+        username: msAuth.username,
+        session: {
+          accessToken: msAuth.accessToken,
+          selectedProfile: {
+            id: msAuth.uuid,
+            name: msAuth.username,
+          },
+        },
+        auth: "microsoft",
+        version: "1.8.9",
+      };
     }
   }
 
@@ -249,6 +271,19 @@ async function connectToJavaServer(proxy, client) {
         return;
       }
 
+      if (packet.windowId >= 0) {
+        if (!client._windowInventories) {
+          client._windowInventories = {};
+        }
+        if (!client._windowInventories[packet.windowId]) {
+          client._windowInventories[packet.windowId] = {};
+        }
+
+        for (let i = 0; i < packet.items.length; i++) {
+          client._windowInventories[packet.windowId][i] = packet.items[i];
+        }
+      }
+
       if (packet.windowId === 0) {
         if (!client.inventory) client.inventory = {};
         for (let i = 0; i < packet.items.length; i++) {
@@ -276,7 +311,42 @@ async function connectToJavaServer(proxy, client) {
 
       for (let i = 0; i < packet.items.length; i++) {
         try {
-          proxy.writeItem(invWriter, packet.items[i]);
+          const item = packet.items[i];
+
+          if (item && item.nbtData) {
+            let displayName = null;
+            let isEnchanted = false;
+            try {
+              if (
+                item.nbtData.value &&
+                item.nbtData.value.display &&
+                item.nbtData.value.display.value
+              ) {
+                if (item.nbtData.value.display.value.Name) {
+                  displayName = item.nbtData.value.display.value.Name.value;
+                }
+              }
+              if (
+                item.nbtData.value &&
+                (item.nbtData.value.ench ||
+                  item.nbtData.value.Enchantments ||
+                  item.nbtData.value.StoredEnchantments)
+              ) {
+                isEnchanted = true;
+              }
+            } catch (err) {
+              /* do nothing */
+            }
+
+            if (displayName) {
+              item.displayName = displayName.replace(/§[0-9a-fk-or]/gi, "");
+            }
+            if (isEnchanted) {
+              item.enchanted = true;
+            }
+          }
+
+          proxy.writeItem(invWriter, item);
         } catch (err) {
           invWriter.writeShort(-1);
         }
@@ -376,7 +446,42 @@ async function connectToJavaServer(proxy, client) {
       const slotWriter = new PacketWriter();
       slotWriter.writeByte(packet.windowId);
       slotWriter.writeShort(packet.slot);
-      proxy.writeItem(slotWriter, packet.item);
+
+      const item = packet.item;
+      if (item && item.nbtData) {
+        let displayName = null;
+        let isEnchanted = false;
+        try {
+          if (
+            item.nbtData.value &&
+            item.nbtData.value.display &&
+            item.nbtData.value.display.value
+          ) {
+            if (item.nbtData.value.display.value.Name) {
+              displayName = item.nbtData.value.display.value.Name.value;
+            }
+          }
+          if (
+            item.nbtData.value &&
+            (item.nbtData.value.ench ||
+              item.nbtData.value.Enchantments ||
+              item.nbtData.value.StoredEnchantments)
+          ) {
+            isEnchanted = true;
+          }
+        } catch (err) {
+          /* do nothing */
+        }
+
+        if (displayName) {
+          item.displayName = displayName;
+        }
+        if (isEnchanted) {
+          item.enchanted = true;
+        }
+      }
+
+      proxy.writeItem(slotWriter, item);
 
       const payload = slotWriter.toBuffer();
 
@@ -524,13 +629,26 @@ async function connectToJavaServer(proxy, client) {
           for (const playerData of packet.data) {
             const uuid = playerData.UUID || playerData.uuid;
             if (uuid) {
-              const existingPlayer = client.javaPlayers.get(uuid);
-              const wasAlreadySpawned =
-                existingPlayer && existingPlayer.spawned;
+              let existingPlayer = client.javaPlayers.get(uuid);
+              if (!existingPlayer) {
+                existingPlayer = {
+                  name: playerData.name,
+                  addedToTablistTime: Date.now(),
+                  gamemode: 0,
+                  ping: 0,
+                  spawned: false,
+                };
+                client.javaPlayers.set(uuid, existingPlayer);
+              } else {
+                existingPlayer.addedToTablistTime = Date.now();
+              }
+              const wasAlreadySpawned = existingPlayer.spawned;
 
               let skinId = 0;
               let skinUrl = null;
               let customTextureName = null;
+              let capeUrl = null;
+              let customCapeName = null;
               if (playerData.properties) {
                 const texturesProp = playerData.properties.find(
                   (p) => p.name === "textures",
@@ -566,6 +684,37 @@ async function connectToJavaServer(proxy, client) {
                               client,
                               existingPlayerForSkin.entityId,
                               customTextureName,
+                              0,
+                            );
+                          }
+                        })
+                        .catch((err) => {
+                          /* do nothing */
+                        });
+                    }
+                    if (parsed.textures && parsed.textures.CAPE) {
+                      capeUrl = parsed.textures.CAPE.url;
+                      customCapeName = generateCustomCapeName(playerData.name);
+
+                      downloadCape(capeUrl)
+                        .then((capeData) => {
+                          proxy.sendTexturePacket(
+                            client,
+                            customCapeName,
+                            capeData,
+                          );
+
+                          const existingPlayerForCape =
+                            client.javaPlayers.get(uuid);
+                          if (
+                            existingPlayerForCape &&
+                            existingPlayerForCape.entityId
+                          ) {
+                            proxy.sendTextureChangePacket(
+                              client,
+                              existingPlayerForCape.entityId,
+                              customCapeName,
+                              1,
                             );
                           }
                         })
@@ -579,13 +728,17 @@ async function connectToJavaServer(proxy, client) {
                 }
               }
 
+              const playerName = playerData.name || "Player";
+              const isNPC = playerName.startsWith("[ZNPC]");
               const updatedPlayer = {
-                name: playerData.name || "Player",
+                name: playerName,
                 gamemode: playerData.gamemode || 0,
                 ping: playerData.ping || 0,
                 skinId: skinId,
                 skinUrl: skinUrl,
                 customTextureName: customTextureName,
+                capeUrl: capeUrl,
+                customCapeName: customCapeName,
                 entityId: existingPlayer ? existingPlayer.entityId : null,
                 javaEntityId: existingPlayer
                   ? existingPlayer.javaEntityId
@@ -600,6 +753,11 @@ async function connectToJavaServer(proxy, client) {
                   ? existingPlayer.readyToSpawn
                   : false,
                 needsSpawn: wasAlreadySpawned,
+                addedViaPlayerInfo: true,
+                isNPC: isNPC,
+                addedToTablistTime: existingPlayer
+                  ? existingPlayer.addedToTablistTime
+                  : Date.now(),
               };
 
               client.javaPlayers.set(uuid, updatedPlayer);
@@ -621,6 +779,10 @@ async function connectToJavaServer(proxy, client) {
             const uuid = playerData.UUID || playerData.uuid;
             if (uuid && client.javaPlayers.has(uuid)) {
               const player = client.javaPlayers.get(uuid);
+              if (player.spawned) {
+                player.isNPC = true;
+                continue;
+              }
               if (player.spawned && player.entityId) {
                 const isDying =
                   client._dyingPlayers &&
@@ -672,12 +834,15 @@ async function connectToJavaServer(proxy, client) {
       }
 
       if (!playerInfo) {
+        const isNPC = playerName.startsWith("[ZNPC]");
         playerInfo = {
           name: playerName,
           gamemode: 0,
           ping: 0,
           entityId: packet.entityId,
           spawned: false,
+          isNPC: isNPC,
+          spawnTime: Date.now(),
         };
         client.javaPlayers.set(uuid, playerInfo);
       } else {
@@ -731,6 +896,22 @@ async function connectToJavaServer(proxy, client) {
         playerInfo.spawned = true;
         try {
           proxy.sendAddPlayerPacket(client, playerInfo);
+          if (playerInfo.customTextureName) {
+            proxy.sendTextureChangePacket(
+              client,
+              playerInfo.entityId,
+              playerInfo.customTextureName,
+              0,
+            );
+          }
+          if (playerInfo.customCapeName) {
+            proxy.sendTextureChangePacket(
+              client,
+              playerInfo.entityId,
+              playerInfo.customCapeName,
+              1,
+            );
+          }
         } catch (err) {
           /* do nothing */
         }
@@ -748,6 +929,7 @@ async function connectToJavaServer(proxy, client) {
       proxy.sendContainerOpenPacket(client, packet);
       client.openWindowId = packet.windowId;
       client.openWindowType = windowType;
+      client._lastOpenTime = Date.now();
 
       const isChest =
         windowType === "minecraft:chest" ||
@@ -780,9 +962,29 @@ async function connectToJavaServer(proxy, client) {
   });
 
   javaClient.on("custom_payload", (packet) => {
-    if (client.state === "play" && packet.channel === "MC|TrList") {
-      const windowId = client.openWindowId || 1;
-      proxy.sendVillagerTrades(client, windowId, packet.data);
+    if (client.state === "play") {
+      if (packet.channel === "MC|TrList") {
+        const windowId = client.openWindowId || 1;
+        proxy.sendVillagerTrades(client, windowId, packet.data);
+      } else if (packet.channel === "MC|BOpen") {
+        let bookItem = null;
+        if (client.inventory) {
+          for (let i = 0; i < 45; i++) {
+            const item = client.inventory[i];
+            if (item && item.blockId === 387) {
+              bookItem = item;
+              break;
+            }
+          }
+        }
+
+        if (bookItem && (bookItem.nbt || bookItem.nbtData)) {
+          if (!bookItem.nbt && bookItem.nbtData) {
+            bookItem.nbt = bookItem.nbtData;
+          }
+          proxy.sendBookAsChestGUI(client, bookItem);
+        }
+      }
     }
   });
 
@@ -860,6 +1062,9 @@ async function connectToJavaServer(proxy, client) {
       ) {
         lceBlockId = 31;
         lceMetadata = 1;
+      } else if (javaBlockId === 165) {
+        lceBlockId = 95;
+        lceMetadata = 5;
       }
 
       if (lceBlockId < 0 || lceBlockId > 170) {
@@ -1023,6 +1228,9 @@ async function connectToJavaServer(proxy, client) {
         ) {
           lceBlockId = 31;
           lceMetadata = 1;
+        } else if (javaBlockId === 165) {
+          lceBlockId = 95;
+          lceMetadata = 5;
         }
 
         if (lceBlockId < 0 || lceBlockId > 170) {
@@ -1073,12 +1281,6 @@ async function connectToJavaServer(proxy, client) {
       const javaType = proxy.getJavaEntityType(packet.type);
       const lceEntityType = proxy.javaEntityTypeMapping[javaType];
 
-      if (!lceEntityType) {
-      }
-
-      if (lceEntityType < 0 || lceEntityType > 200) {
-      }
-
       const lceEntityId = proxy.mapJavaEntityIdToLce(client, packet.entityId);
 
       const entityInfo = {
@@ -1100,6 +1302,11 @@ async function connectToJavaServer(proxy, client) {
         metadata: packet.metadata || [],
       };
 
+      if (javaType === "Rabbit") {
+        entityInfo.metadata.push({ key: 10, type: 4, value: "Rabbit" });
+        entityInfo.metadata.push({ key: 11, type: 0, value: 1 });
+      }
+
       entityInfo.spawnTime = Date.now();
 
       client.javaEntities.set(packet.entityId, entityInfo);
@@ -1111,7 +1318,7 @@ async function connectToJavaServer(proxy, client) {
       }
 
       const relevantMetadata = entityInfo.metadata.filter((m) => {
-        return [12, 13, 16].includes(m.key) && m.type !== 5;
+        return [10, 11, 12, 13, 16].includes(m.key) && m.type !== 5;
       });
 
       if (relevantMetadata.length > 0) {
@@ -1127,6 +1334,9 @@ async function connectToJavaServer(proxy, client) {
   javaClient.on("spawn_entity", (packet) => {
     try {
       if (client.state === "play") {
+        //if (packet && packet.type === 71) {
+        //  console.log(packet);
+        //}
         if (
           !packet ||
           packet.entityId === undefined ||
@@ -1212,13 +1422,29 @@ async function connectToJavaServer(proxy, client) {
           }
         }
 
+        let tileX = packet.x / 32;
+        let tileY = packet.y / 32;
+        let tileZ = packet.z / 32;
+
+        // if (lceEntityType === 71 && itemFrameDirection !== null) {
+        //   if (itemFrameDirection === 0) {
+        //     tileZ--;
+        //   } else if (itemFrameDirection === 1) {
+        //     tileX++;
+        //   } else if (itemFrameDirection === 2) {
+        //     tileZ++;
+        //   } else if (itemFrameDirection === 3) {
+        //     tileX -= 1;
+        //   }
+        // }
+
         const entityInfo = {
           entityId: lceEntityId,
           javaEntityId: packet.entityId,
           type: lceEntityType,
-          x: packet.x / 32,
-          y: packet.y / 32,
-          z: packet.z / 32,
+          x: tileX,
+          y: tileY,
+          z: tileZ,
           yaw: lceEntityType === 60 ? 0 : (packet.yaw / 256) * 360,
           pitch: lceEntityType === 60 ? 0 : (packet.pitch / 256) * 360,
           data:
@@ -1635,12 +1861,29 @@ async function connectToJavaServer(proxy, client) {
             packet.item.blockId !== undefined &&
             packet.item.blockId !== -1
           ) {
-            proxy.sendSetEquippedItemPacket(
-              client,
-              player,
-              packet.slot,
-              packet.item,
-            );
+            const item = packet.item;
+            if (item.blockId === 387) {
+              item.enchanted = true;
+            }
+            if (item.nbtData) {
+              let isEnchanted = false;
+              try {
+                if (
+                  item.nbtData.value &&
+                  (item.nbtData.value.ench ||
+                    item.nbtData.value.Enchantments ||
+                    item.nbtData.value.StoredEnchantments)
+                ) {
+                  isEnchanted = true;
+                }
+              } catch (err) {
+                /* do nothing */
+              }
+              if (isEnchanted) {
+                item.enchanted = true;
+              }
+            }
+            proxy.sendSetEquippedItemPacket(client, player, packet.slot, item);
           } else {
             proxy.sendSetEquippedItemPacket(client, player, packet.slot, {
               blockId: -1,
@@ -1659,12 +1902,29 @@ async function connectToJavaServer(proxy, client) {
           packet.item.blockId !== undefined &&
           packet.item.blockId !== -1
         ) {
-          proxy.sendSetEquippedItemPacket(
-            client,
-            entity,
-            packet.slot,
-            packet.item,
-          );
+          const item = packet.item;
+          if (item.blockId === 387) {
+            item.enchanted = true;
+          }
+          if (item.nbtData) {
+            let isEnchanted = false;
+            try {
+              if (
+                item.nbtData.value &&
+                (item.nbtData.value.ench ||
+                  item.nbtData.value.Enchantments ||
+                  item.nbtData.value.StoredEnchantments)
+              ) {
+                isEnchanted = true;
+              }
+            } catch (err) {
+              /* do nothing */
+            }
+            if (isEnchanted) {
+              item.enchanted = true;
+            }
+          }
+          proxy.sendSetEquippedItemPacket(client, entity, packet.slot, item);
         }
       }
     }
@@ -1729,7 +1989,29 @@ async function connectToJavaServer(proxy, client) {
               (m) => m.key === 10 && m.type === 5,
             );
             if (itemMetadata && itemMetadata.value) {
-              proxy.sendSetItemDataPacket(client, entity, itemMetadata.value);
+              const itemData = itemMetadata.value;
+              if (itemData && itemData.blockId === 387) {
+                itemData.enchanted = true;
+              }
+              if (itemData && itemData.nbtData) {
+                let isEnchanted = false;
+                try {
+                  if (
+                    itemData.nbtData.value &&
+                    (itemData.nbtData.value.ench ||
+                      itemData.nbtData.value.Enchantments ||
+                      itemData.nbtData.value.StoredEnchantments)
+                  ) {
+                    isEnchanted = true;
+                  }
+                } catch (err) {
+                  /* do nothing */
+                }
+                if (isEnchanted) {
+                  itemData.enchanted = true;
+                }
+              }
+              proxy.sendSetItemDataPacket(client, entity, itemData);
               entity.waitingForItemData = false;
             }
           }
@@ -1891,8 +2173,13 @@ async function connectToJavaServer(proxy, client) {
         let isPlayer = false;
         for (const [uuid, player] of client.javaPlayers) {
           if (player.javaEntityId === entityId && player.spawned) {
-            const deathEvent = { entityId: player.entityId };
-            proxy.sendEntityEventPacket(client, deathEvent, 3);
+            const isDying =
+              client._dyingPlayers &&
+              client._dyingPlayers.has(player.javaEntityId);
+            if (isDying) {
+              const deathEvent = { entityId: player.entityId };
+              proxy.sendEntityEventPacket(client, deathEvent, 3);
+            }
 
             const lceEntityId = player.entityId;
             const javaEntityId = entityId;
@@ -2085,6 +2372,57 @@ async function connectToJavaServer(proxy, client) {
       //proxy.sendFlatChunk(client, chunkX, chunkZ);
     }
   });
+
+  javaClient.on("update_sign", (packet) => {
+    try {
+      if (!packet.location) return;
+
+      const x = packet.location.x;
+      const y = packet.location.y;
+      const z = packet.location.z;
+
+      const text1 = parseChatComponent(packet.text1);
+      const text2 = parseChatComponent(packet.text2);
+      const text3 = parseChatComponent(packet.text3);
+      const text4 = parseChatComponent(packet.text4);
+
+      const writer = new PacketWriter();
+      writer.writeInt(x);
+      writer.writeShort(y);
+      writer.writeInt(z);
+      writer.writeBoolean(true);
+      writer.writeBoolean(false);
+
+      writer.writeUtf(text1);
+      writer.writeUtf(text2);
+      writer.writeUtf(text3);
+      writer.writeUtf(text4);
+
+      proxy.sendPacket(client, 0x82, writer.toBuffer());
+    } catch (err) {
+      /* do nothing */
+    }
+  });
+
+  javaClient.on("open_sign_entity", (packet) => {
+    try {
+      if (!packet.location) return;
+
+      const x = packet.location.x;
+      const y = packet.location.y;
+      const z = packet.location.z;
+
+      const writer = new PacketWriter();
+      writer.writeByte(0);
+      writer.writeInt(x);
+      writer.writeInt(y);
+      writer.writeInt(z);
+
+      proxy.sendPacket(client, 0x85, writer.toBuffer());
+    } catch (err) {
+      /* do nothing */
+    }
+  });
 }
 
 function convertAndSendJavaChunk(proxy, client, javaChunk) {
@@ -2195,6 +2533,9 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
               } else if (javaBlockId === 32) {
                 lceBlockId = 31;
                 lceMetadata = 1;
+              } else if (javaBlockId === 165) {
+                lceBlockId = 95;
+                lceMetadata = 5;
               }
 
               if (lceBlockId < 0 || lceBlockId > 174) {
