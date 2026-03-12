@@ -2524,7 +2524,7 @@ class LCEProxy {
   }
 
   handleCraftItem(client, data) {
-    const debugLog = true;
+    const debugLog = false;
     if (client._craftingInProgress) {
       if (debugLog) console.log("craft already in progress ignoring");
       return;
@@ -2654,7 +2654,7 @@ class LCEProxy {
   }
 
   tryPlaceItemsInCraftingGrid(client, grid, recipeId) {
-    const debugLog = true;
+    const debugLog = false;
     if (debugLog) console.log("placing items");
     const itemNameToDamage = {
       wool: 0,
@@ -2878,7 +2878,7 @@ class LCEProxy {
   }
 
   placeItemsInGrid(client, requiredItems) {
-    const debugLog = true;
+    const debugLog = false;
     if (!client.javaClient || !client.javaClient.write) {
       client._craftingInProgress = false;
       return;
@@ -2998,7 +2998,7 @@ class LCEProxy {
   }
 
   checkCraftingResult(client, usedGridSlots) {
-    const debugLog = true;
+    const debugLog = false;
     if (debugLog) console.log("checking crafting result");
     const windowId = client.openWindowId || 0;
 
@@ -3077,7 +3077,7 @@ class LCEProxy {
   }
 
   takeCraftedItemAndClear(client, usedGridSlots) {
-    const debugLog = true;
+    const debugLog = false;
     if (debugLog) console.log("taking crafted item and clearing grid");
     if (!client.javaClient || !client.javaClient.write) {
       if (debugLog) console.log("no java client available");

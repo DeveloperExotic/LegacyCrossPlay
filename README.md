@@ -17,8 +17,7 @@
 
 # Known issues, will be fixed
 
-- Chunk lighting is always lit
-- You're unable to craft in survival mode
+- Chunk lighting is always based on sky light (no lighting data)
 - You're unable to accept villager trades
 
 ---
