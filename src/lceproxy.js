@@ -3894,7 +3894,7 @@ class LCEProxy {
       this.clients.splice(index, 1);
     }
 
-    if (client.smallId) {
+    if (client.smallId !== undefined) {
       this.usedSmallIds.delete(client.smallId);
     }
 

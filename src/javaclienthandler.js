@@ -2601,9 +2601,68 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
       }
     }
 
+    const hasSky = client.javaDimension === 0;
+    const javaBlitBase = sectionCount * 8192;
+    const javaSlitBase = hasSky ? javaBlitBase + sectionCount * 2048 : -1;
+
+    const BLOCK_LIGHT_OFF = blockCount + halfBlockCount;
+    const SKY_LIGHT_OFF = blockCount + halfBlockCount + halfBlockCount;
+
+    rawData.fill(0xff, SKY_LIGHT_OFF, SKY_LIGHT_OFF + halfBlockCount);
+
+    let litSectionIdx = 0;
+    for (let sectionY = 0; sectionY < 16; sectionY++) {
+      if ((bitMap & (1 << sectionY)) === 0) continue;
+
+      const baseY = sectionY * 16;
+      const jBlit = javaBlitBase + litSectionIdx * 2048;
+      const jSlit =
+        javaSlitBase >= 0 ? javaSlitBase + litSectionIdx * 2048 : -1;
+
+      for (let sx = 0; sx < 16; sx++) {
+        const jLow = (sx & 1) === 0;
+        for (let sz = 0; sz < 16; sz++) {
+          for (let yp = 0; yp < 8; yp++) {
+            const y0 = yp * 2;
+            const totalY = baseY + y0;
+            if (totalY >= chunkHeight) continue;
+
+            const jb0 = (y0 * 256 + sz * 16 + sx) >> 1;
+            const jb1 = jb0 + 128;
+
+            let cIdx;
+            if (totalY < 128) {
+              cIdx = (sx * 16 + sz) * 64 + (totalY >> 1);
+            } else {
+              cIdx = 16384 + (sx * 16 + sz) * 64 + ((totalY - 128) >> 1);
+            }
+
+            //block light
+            if (jBlit + jb1 < javaData.length) {
+              const b0 = javaData[jBlit + jb0];
+              const b1 = javaData[jBlit + jb1];
+              const n0 = jLow ? b0 & 0x0f : (b0 >> 4) & 0x0f;
+              const n1 = jLow ? b1 & 0x0f : (b1 >> 4) & 0x0f;
+              rawData[BLOCK_LIGHT_OFF + cIdx] = n0 | (n1 << 4);
+            }
+
+            //sky light
+            if (jSlit >= 0 && jSlit + jb1 < javaData.length) {
+              const s0 = javaData[jSlit + jb0];
+              const s1 = javaData[jSlit + jb1];
+              const n0 = jLow ? s0 & 0x0f : (s0 >> 4) & 0x0f;
+              const n1 = jLow ? s1 & 0x0f : (s1 >> 4) & 0x0f;
+              rawData[SKY_LIGHT_OFF + cIdx] = n0 | (n1 << 4);
+            }
+          }
+        }
+      }
+
+      litSectionIdx++;
+    }
+
     //biome fix!
     const biomeOffset = blockCount + 3 * halfBlockCount;
-    const hasSky = client.javaDimension === 0;
     const javaBiomeOffset = sectionCount * (hasSky ? 12288 : 10240);
 
     if (javaChunk.x === 0 && javaChunk.z === 0) {
@@ -2632,8 +2691,9 @@ function convertAndSendJavaChunk(proxy, client, javaChunk) {
     }
   }
 
-  const skyLightOffset = blockCount + halfBlockCount + halfBlockCount;
-  if (skyLightOffset >= 0 && skyLightOffset + halfBlockCount <= rawSize) {
+  const hasSkyFallback = client.javaDimension === 0;
+  if (!hasSkyFallback) {
+    const skyLightOffset = blockCount + halfBlockCount + halfBlockCount;
     for (let i = 0; i < halfBlockCount; i++) {
       rawData[skyLightOffset + i] = 0xff;
     }

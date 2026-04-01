@@ -16,7 +16,7 @@
 
 # Known issues, will be fixed
 
-- Chunk lighting is always based on sky light (no lighting data)
+- Crafting is buggy
 - You're unable to accept villager trades
 
 ---
