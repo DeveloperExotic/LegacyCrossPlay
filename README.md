@@ -1,6 +1,5 @@
 # Legacy Cross Play
 ## Any questions, need help? [Join the server!](https://discord.gg/cb9rs9yfDm)
-## CURRENTLY, THE ORIGINAL LEGACY CLIENT IS BROKEN, USE [THIS ONE](https://github.com/DeveloperExotic/LegacyCrossPlay/releases)
 
 **This project allows Legacy Console Edition clients to join a vanilla 1.8 Java Edition server!**
 ![](https://raw.githubusercontent.com/DeveloperExotic/LegacyCrossPlay/refs/heads/main/.assets/lce1.png)
@@ -8,7 +7,7 @@
 
 # How to Install
 
-**Code modifications, or server plugins ARE NOT required!**
+**Client modifications, or server plugins ARE NOT required!**
 
 - Install [NodeJS](https://nodejs.org/en/download), you may need to restart your computer after
 - Start a localhost Java Edition server running on port 25564, and in offline mode (you can edit these in `server.properties`)

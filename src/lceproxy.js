@@ -70,7 +70,7 @@ class LCEProxy {
       0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x3c, 0x3d, 0x3e, 0x46, 0x64,
       0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x82, 0x83, 0x85,
       0x96, 0x97, 0x98, 0x9a, 0x9d, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce,
-      0xcf, 0xd0, 0xd1, 0xfa, 0xfc, 0xfd, 0xfe, 0xff,
+      0xcf, 0xd0, 0xd1, 0xfa, 0xfc, 0xfd, 0xfe, 0xff, 0xaa, 0xac,
     ]);
   }
 
@@ -189,7 +189,7 @@ class LCEProxy {
       `Broadcasting ${SERVERS.length} server(s) as LAN games on Minecraft Legacy Edition.`,
     );
     SERVERS.forEach((server, index) => {
-      const serverStr = typeof server === 'string' ? server : server.server;
+      const serverStr = typeof server === "string" ? server : server.server;
       console.log(`  - ${serverStr} on port ${GAME_PORT + index}`);
     });
     console.log("Press Ctrl+C to stop.\n");
@@ -203,13 +203,13 @@ class LCEProxy {
 
     this.broadcasts = SERVERS.map((server, index) => {
       const gamePort = GAME_PORT + index;
-      const serverStr = typeof server === 'string' ? server : server.server;
-      const parts = serverStr.split(':');
+      const serverStr = typeof server === "string" ? server : server.server;
+      const parts = serverStr.split(":");
       this.serverConfigs[index] = {
         host: parts[0],
         port: parts[1] ? parseInt(parts[1]) : 25565,
         name: serverStr,
-        cracked: typeof server === 'object' ? server.cracked : false,
+        cracked: typeof server === "object" ? server.cracked : false,
         gamePort: gamePort,
       };
       return new LANBroadcast(serverStr, gamePort);
@@ -233,7 +233,7 @@ class LCEProxy {
       const tcpServer = net.createServer((socket) => {
         socket.setNoDelay(true);
 
-        let smallId = 1;
+        let smallId = 0;
         while (this.usedSmallIds.has(smallId) && smallId <= 8) {
           smallId++;
         }
@@ -499,6 +499,14 @@ class LCEProxy {
       case 0x02: //PreLoginPacket
         this.handlePreLogin(client, packetData);
         break;
+      case 0xab: //AuthResponsePacket (171)
+        console.log(
+          `[AUTH] Received AuthResponsePacket, state=${client.state}, authState=${client.authState}`,
+        );
+        if (client.state === "login") {
+          this.handleAuthResponse(client, packetData);
+        }
+        break;
       case 0x01: //LoginPacket
         this.handleLogin(client, packetData);
         break;
@@ -625,6 +633,7 @@ class LCEProxy {
     const loginKey = reader.readString();
 
     client.state = "login";
+    client._netcodeVersion = netcodeVersion;
 
     const writer = new PacketWriter();
     writer.writeShort(MINECRAFT_NET_VERSION);
@@ -677,9 +686,125 @@ class LCEProxy {
     writer.writeInt(0); //texturePackId
 
     this.sendPacket(client, 0x02, writer.toBuffer());
+    if (client._netcodeVersion >= 561) {
+      client.authState = "waitingResponse";
+      setImmediate(() => this._sendAuthSchemePacket(client));
+    } else {
+      client.authState = "done";
+    }
+  }
+
+  _sendAuthSchemePacket(client) {
+    const chars = "0123456789abcdef";
+    let serverId = "";
+    for (let i = 0; i < 20; i++)
+      serverId += chars[Math.floor(Math.random() * 16)];
+    client._authServerId = serverId;
+
+    const schemes = ["offline"];
+    client._authSchemes = schemes;
+
+    const writer = new PacketWriter();
+    writer.writeShort(schemes.length);
+    for (const s of schemes) writer.writeString(s);
+    writer.writeString(serverId);
+    this.sendPacket(client, 0xaa, writer.toBuffer());
+  }
+
+  handleAuthResponse(client, data) {
+    if (client.authState !== "waitingResponse") return;
+
+    const reader = new PacketReader(data.slice(1));
+    const chosenScheme = reader.readString();
+    const mojangUuid = reader.readString();
+    const username = reader.readString();
+
+    const validSchemes = client._authSchemes || ["mojang", "offline"];
+    if (!validSchemes.includes(chosenScheme)) {
+      this._sendAuthResult(client, false, "", "", "Invalid auth scheme");
+      return;
+    }
+
+    if (chosenScheme === "offline") {
+      const crypto = require("crypto");
+      const hash = crypto
+        .createHash("md5")
+        .update("OfflinePlayer:" + username)
+        .digest();
+      hash[6] = (hash[6] & 0x0f) | 0x30;
+      hash[8] = (hash[8] & 0x3f) | 0x80;
+      const h = hash.toString("hex");
+      const offlineUuid =
+        h.slice(0, 8) +
+        "-" +
+        h.slice(8, 12) +
+        "-" +
+        h.slice(12, 16) +
+        "-" +
+        h.slice(16, 20) +
+        "-" +
+        h.slice(20, 32);
+      client.authUuid = offlineUuid;
+      client.authUsername = username || "Player";
+      client.authState = "done";
+      this._sendAuthResult(client, true, offlineUuid, client.authUsername, "");
+    } else {
+      const msAuth = require("./auth");
+      const finish = () => {
+        const raw = msAuth.uuid || "";
+        const uuid = raw.includes("-")
+          ? raw
+          : raw.slice(0, 8) +
+            "-" +
+            raw.slice(8, 12) +
+            "-" +
+            raw.slice(12, 16) +
+            "-" +
+            raw.slice(16, 20) +
+            "-" +
+            raw.slice(20, 32);
+        client.authUuid = uuid;
+        client.authUsername = msAuth.username;
+        client.authState = "done";
+        this._sendAuthResult(client, true, uuid, msAuth.username, "");
+      };
+      if (msAuth.isAuthenticated()) {
+        finish();
+      } else {
+        msAuth
+          .authenticate()
+          .then(finish)
+          .catch(() => {
+            this._sendAuthResult(
+              client,
+              false,
+              "",
+              "",
+              "Authentication failed",
+            );
+          });
+      }
+    }
+  }
+
+  _sendAuthResult(client, success, uuid, username, errorMessage) {
+    const writer = new PacketWriter();
+    writer.writeBoolean(success);
+    writer.writeString(uuid);
+    writer.writeString(username);
+    writer.writeString(errorMessage);
+    writer.writeString("");
+    writer.writeInt(0);
+    this.sendPacket(client, 0xac, writer.toBuffer());
+    if (!success) setTimeout(() => this.disconnectClient(client, 2), 200);
   }
 
   handleLogin(client, data) {
+    if (client.authState !== "done") {
+      this.disconnectClient(client, 2);
+      return;
+    }
+
     const reader = new PacketReader(data.slice(1));
     const clientVersion = reader.readInt();
     const username = reader.readString();
@@ -727,7 +852,7 @@ class LCEProxy {
     writer.writeInt(0); //ugcPlayersVersion
     writer.writeByte(1); //difficulty (hardcoded to Easy)
     writer.writeInt(0); //multiplayerInstanceId
-    writer.writeByte(0); //playerIndex
+    writer.writeByte(client.smallId); //playerIndex
     writer.writeInt(0); //playerSkinId
     writer.writeInt(0); //playerCapeId
     writer.writeBoolean(false); //isGuest

@@ -5,10 +5,7 @@
 //beware that there are a lot of magic numbers, need to do a refractor soon.
 
 const mc = require("minecraft-protocol");
-const {
-  USE_LEGACY_USERNAME,
-  CUSTOM_USERNAME,
-} = require("../constants");
+const { USE_LEGACY_USERNAME, CUSTOM_USERNAME } = require("../constants");
 const msAuth = require("./auth");
 const PacketWriter = require("./packetwriter");
 const { mapJavaItemToLCE, mapJavaBlockToLCE } = require("./mappings");
@@ -53,7 +50,9 @@ async function connectToJavaServer(proxy, client) {
         version: "1.8.9",
       };
     } else {
-      console.log(`Server ${serverConfig.name} requires authentication. Authenticating...`);
+      console.log(
+        `Server ${serverConfig.name} requires authentication. Authenticating...`,
+      );
       await msAuth.authenticate();
       authConfig = {
         host: serverConfig.host,
@@ -1426,18 +1425,6 @@ async function connectToJavaServer(proxy, client) {
         let tileY = packet.y / 32;
         let tileZ = packet.z / 32;
 
-        // if (lceEntityType === 71 && itemFrameDirection !== null) {
-        //   if (itemFrameDirection === 0) {
-        //     tileZ--;
-        //   } else if (itemFrameDirection === 1) {
-        //     tileX++;
-        //   } else if (itemFrameDirection === 2) {
-        //     tileZ++;
-        //   } else if (itemFrameDirection === 3) {
-        //     tileX -= 1;
-        //   }
-        // }
-
         const entityInfo = {
           entityId: lceEntityId,
           javaEntityId: packet.entityId,
@@ -1691,7 +1678,7 @@ async function connectToJavaServer(proxy, client) {
 
           const sleepWriter = new PacketWriter();
           sleepWriter.writeInt(player.entityId);
-          sleepWriter.writeByte(0); //0=start sleep
+          sleepWriter.writeByte(0);
           sleepWriter.writeInt(packet.location.x);
           sleepWriter.writeByte(packet.location.y & 0xff);
           sleepWriter.writeInt(packet.location.z);
