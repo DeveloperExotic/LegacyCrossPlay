@@ -11,9 +11,7 @@ const {
   GAME_PORT,
   WIN64_LAN_DISCOVERY_PORT,
   MINECRAFT_NET_VERSION,
-  USE_LEGACY_USERNAME,
-  CUSTOM_USERNAME,
-  SERVERS,
+  LOBBY_NAME,
 } = require("../constants");
 
 const PacketWriter = require("./packetwriter");
@@ -185,13 +183,6 @@ class LCEProxy {
     this.startTCPServer();
 
     console.log("\nProxy is now running!");
-    console.log(
-      `Broadcasting ${SERVERS.length} server(s) as LAN games on Minecraft Legacy Edition.`,
-    );
-    SERVERS.forEach((server, index) => {
-      const serverStr = typeof server === "string" ? server : server.server;
-      console.log(`  - ${serverStr} on port ${GAME_PORT + index}`);
-    });
     console.log("Press Ctrl+C to stop.\n");
   }
 
@@ -201,96 +192,80 @@ class LCEProxy {
       this.udpSocket.setBroadcast(true);
     });
 
-    this.broadcasts = SERVERS.map((server, index) => {
-      const gamePort = GAME_PORT + index;
-      const serverStr = typeof server === "string" ? server : server.server;
-      const parts = serverStr.split(":");
-      this.serverConfigs[index] = {
-        host: parts[0],
-        port: parts[1] ? parseInt(parts[1]) : 25565,
-        name: serverStr,
-        cracked: typeof server === "object" ? server.cracked : false,
-        gamePort: gamePort,
-      };
-      return new LANBroadcast(serverStr, gamePort);
-    });
+    this.lobbyBroadcast = new LANBroadcast(LOBBY_NAME, GAME_PORT);
 
     this.broadcastInterval = setInterval(() => {
-      this.broadcasts.forEach((broadcast) => {
-        this.udpSocket.send(
-          broadcast.buffer,
-          0,
-          broadcast.buffer.length,
-          WIN64_LAN_DISCOVERY_PORT,
-          "255.255.255.255",
-        );
-      });
+      this.lobbyBroadcast.setPlayerCount(Math.max(1, this.clients.length));
+      this.udpSocket.send(
+        this.lobbyBroadcast.buffer,
+        0,
+        this.lobbyBroadcast.buffer.length,
+        WIN64_LAN_DISCOVERY_PORT,
+        "255.255.255.255",
+      );
     }, 1000);
   }
 
   startTCPServer() {
-    this.serverConfigs.forEach((serverConfig, index) => {
-      const tcpServer = net.createServer((socket) => {
-        socket.setNoDelay(true);
+    const tcpServer = net.createServer((socket) => {
+      socket.setNoDelay(true);
 
-        let smallId = 0;
-        while (this.usedSmallIds.has(smallId) && smallId <= 8) {
-          smallId++;
-        }
+      let smallId = 0;
+      while (this.usedSmallIds.has(smallId) && smallId <= 8) {
+        smallId++;
+      }
 
-        if (smallId > 8) {
-          socket.destroy();
-          return;
-        }
+      if (smallId > 8) {
+        socket.destroy();
+        return;
+      }
 
-        this.usedSmallIds.add(smallId);
+      this.usedSmallIds.add(smallId);
 
-        const client = {
-          socket: socket,
-          smallId: smallId,
-          buffer: Buffer.alloc(0),
-          state: "prelogin",
-          javaClient: null,
-          breakingBlock: null,
-          javaPlayers: new Map(),
-          nextLceEntityId: 100,
-          javaToLceEntityId: new Map(),
-          javaEntities: new Map(),
-          serverConfig: serverConfig,
-        };
+      const client = {
+        socket: socket,
+        smallId: smallId,
+        buffer: Buffer.alloc(0),
+        state: "prelogin",
+        javaClient: null,
+        breakingBlock: null,
+        javaPlayers: new Map(),
+        nextLceEntityId: 100,
+        javaToLceEntityId: new Map(),
+        javaEntities: new Map(),
+        serverConfig: null,
+        inLobby: true,
+      };
 
-        this.clients.push(client);
+      this.clients.push(client);
 
-        const smallIdBuffer = Buffer.from([smallId]);
-        socket.write(smallIdBuffer);
+      const smallIdBuffer = Buffer.from([smallId]);
+      socket.write(smallIdBuffer);
 
-        socket.on("data", (data) => {
-          this.handleClientData(client, data);
-        });
-
-        socket.on("end", () => {
-          this.removeClient(client);
-        });
-
-        socket.on("error", (err) => {
-          this.removeClient(client);
-        });
-
-        socket.on("close", () => {
-          if (this.clients.indexOf(client) > -1) {
-            this.removeClient(client);
-          }
-        });
+      socket.on("data", (data) => {
+        this.handleClientData(client, data);
       });
 
-      tcpServer.listen(serverConfig.gamePort, () => {
-        console.log(
-          `Server ${serverConfig.name} should now be visible on LCE.`,
-        );
+      socket.on("end", () => {
+        this.removeClient(client);
       });
 
-      this.tcpServers.push(tcpServer);
+      socket.on("error", (err) => {
+        this.removeClient(client);
+      });
+
+      socket.on("close", () => {
+        if (this.clients.indexOf(client) > -1) {
+          this.removeClient(client);
+        }
+      });
     });
+
+    tcpServer.listen(GAME_PORT, () => {
+      /* do nothing */
+    });
+
+    this.tcpServers.push(tcpServer);
   }
 
   getPacketDataSize(packetId, data, offset) {
@@ -500,9 +475,6 @@ class LCEProxy {
         this.handlePreLogin(client, packetData);
         break;
       case 0xab: //AuthResponsePacket (171)
-        console.log(
-          `[AUTH] Received AuthResponsePacket, state=${client.state}, authState=${client.authState}`,
-        );
         if (client.state === "login") {
           this.handleAuthResponse(client, packetData);
         }
@@ -810,12 +782,11 @@ class LCEProxy {
     const username = reader.readString();
 
     client.state = "login";
-    client.username = !USE_LEGACY_USERNAME ? CUSTOM_USERNAME : username;
+    client.username = username;
 
     if (client.javaClient) {
       const oldJavaClient = client.javaClient;
       client.javaClient = null;
-
       oldJavaClient.removeAllListeners();
       oldJavaClient.on("error", () => {
         /* do nothing */
@@ -827,7 +798,109 @@ class LCEProxy {
       }
     }
 
-    this.connectToJavaServer(client);
+    this.enterLobby(client);
+  }
+
+  sendChatToClient(client, text) {
+    const writer = new PacketWriter();
+    writer.writeShort(0);
+    writer.writeShort(0x10);
+    writer.writeString(text);
+    this.sendPacket(client, 0x03, writer.toBuffer());
+  }
+
+  enterLobby(client, message) {
+    client.inLobby = true;
+    client.javaGameMode = 2;
+    client.javaDimension = 0;
+    client.javaSpawnX = 0.5;
+    client.javaSpawnY = 65.0;
+    client.javaSpawnZ = 0.5;
+    client.javaYaw = 0;
+    client.javaPitch = 0;
+    client.javaPlayers = new Map();
+    client.javaEntities = new Map();
+    client.javaToLceEntityId = new Map();
+    client.nextLceEntityId = 100;
+    client.loadedChunks = new Set();
+    client.heldSlot = 0;
+    client.inventory = {};
+    client._windowInventories = {};
+    client._currentChest = null;
+    client._deadEntities = new Set();
+    client._destroyedEntities = new Set();
+    client._dyingPlayers = new Map();
+    client._lastJavaPackets = [];
+    client._bookGUI = null;
+    client._craftingInProgress = false;
+    client._pendingAttacks = new Set();
+    client._lastAttacks = new Map();
+    client._itemUseState = {};
+    client.openWindowId = null;
+    client.openWindowType = null;
+    client.isRiding = false;
+    client.abilities = {};
+    client.serverConfig = null;
+
+    client.state = "play";
+    this.sendLCELoginResponse(client);
+
+    for (const other of this.clients) {
+      if (other === client || other.state !== "play" || other.inLobby) continue;
+      this.sendAddPlayerPacket(client, {
+        entityId: other.smallId,
+        name: other.username || "Player",
+        x: other.playerX || 0,
+        y: other.playerY || 65,
+        z: other.playerZ || 0,
+        yaw: other.playerYaw || 0,
+        pitch: other.playerPitch || 0,
+      });
+    }
+
+    for (const other of this.clients) {
+      if (other === client || other.state !== "play" || other.inLobby) continue;
+      this.sendAddPlayerPacket(other, {
+        entityId: client.smallId,
+        name: client.username || "Player",
+        x: 0.5,
+        y: 65,
+        z: 0.5,
+        yaw: 0,
+        pitch: 0,
+      });
+    }
+
+    for (let cx = -2; cx <= 2; cx++) {
+      for (let cz = -2; cz <= 2; cz++) {
+        this.sendFlatChunk(client, cx, cz);
+      }
+    }
+
+    const welcomeDelay = message ? 200 : 500;
+    if (message) {
+      setTimeout(() => {
+        this.sendChatToClient(client, message);
+      }, 200);
+    }
+    setTimeout(
+      () => {
+        this.sendChatToClient(
+          client,
+          "Welcome to LegacyCrossPlay - developed by @DeveloperExotic!",
+        );
+      },
+      message ? 600 : 500,
+    );
+    setTimeout(
+      () => {
+        this.sendChatToClient(
+          client,
+          "Type /lce connect <ip> to join a Java Edition server",
+        );
+      },
+      message ? 900 : 800,
+    );
   }
 
   sendLCELoginResponse(client) {
@@ -2132,6 +2205,22 @@ class LCEProxy {
     if (stringCount > 0) {
       const message = reader.readString();
 
+      if (message && message.startsWith("/lce ")) {
+        this.handleCommand(client, message);
+        return;
+      }
+
+      if (message && message.startsWith("/")) {
+        if (client.javaClient && client.javaClient.write) {
+          try {
+            client.javaClient.write("chat", { message });
+          } catch (err) {
+            /* do nothing */
+          }
+        }
+        return;
+      }
+
       if (
         client.javaClient &&
         client.javaClient.write &&
@@ -2139,13 +2228,173 @@ class LCEProxy {
         message.length > 0
       ) {
         try {
-          client.javaClient.write("chat", {
-            message: message,
-          });
+          client.javaClient.write("chat", { message });
         } catch (err) {
           /* do nothing */
         }
       }
+    }
+  }
+
+  handleCommand(client, message) {
+    const parts = message.trim().split(/\s+/);
+    const cmd = parts[1]?.toLowerCase();
+
+    if (cmd === "connect") {
+      if (parts.length !== 3) {
+        this.sendChatToClient(client, "Command not valid");
+        return;
+      }
+
+      const arg = parts[2];
+      const colonCount = (arg.match(/:/g) || []).length;
+      if (colonCount > 1) {
+        this.sendChatToClient(client, "Command not valid");
+        return;
+      }
+
+      let host, port;
+      if (colonCount === 1) {
+        const split = arg.split(":");
+        host = split[0];
+        port = parseInt(split[1], 10);
+        if (!host || isNaN(port) || port < 1 || port > 65535) {
+          this.sendChatToClient(client, "Command not valid");
+          return;
+        }
+      } else {
+        host = arg;
+        port = 25565;
+      }
+
+      const displayAddr = colonCount === 1 ? arg : `${host}:${port}`;
+      this.sendChatToClient(client, `Connecting to ${displayAddr}`);
+
+      if (client.javaClient) {
+        const old = client.javaClient;
+        client.javaClient = null;
+        old.removeAllListeners();
+        old.on("error", () => {
+          /* do nothing */
+        });
+        try {
+          old.end();
+        } catch (e) {
+          /* do nothing */
+        }
+      }
+
+      client.inLobby = false;
+      client.state = "login";
+      client.serverConfig = {
+        host,
+        port,
+        name: displayAddr,
+        cracked: !(
+          client.useLinkedAccount !== false &&
+          require("./auth").hasCachedAccount()
+        ),
+      };
+
+      this.connectToJavaServer(client);
+    } else if (cmd === "disconnect") {
+      if (parts.length !== 2) {
+        this.sendChatToClient(client, "Command not valid");
+        return;
+      }
+      if (client.inLobby || !client.javaClient) {
+        this.sendChatToClient(client, "Command not valid");
+        return;
+      }
+      const old = client.javaClient;
+      client.javaClient = null;
+      old.removeAllListeners();
+      old.on("error", () => {
+        /* do nothing */
+      });
+      try {
+        old.end();
+      } catch (e) {
+        /* do nothing */
+      }
+      this.enterLobby(client, "Disconnected from server");
+    } else if (cmd === "link") {
+      if (parts.length !== 2) {
+        this.sendChatToClient(client, "Usage: /lce link");
+        return;
+      }
+      const msAuth = require("./auth");
+      if (msAuth.hasCachedAccount()) {
+        this.sendChatToClient(client, "You already have an account linked!");
+        return;
+      }
+      this.sendChatToClient(client, "Starting Microsoft authentication...");
+      let linkInterval = null;
+      msAuth
+        .authenticate((data) => {
+          const code =
+            data.userCode ||
+            data.user_code ||
+            (data.message && data.message.match(/[A-Z0-9]{8,}/)?.[0]) ||
+            "???";
+          const msg = `To link your account, head to https://www.microsoft.com/link and enter code ${code}`;
+          this.sendChatToClient(client, msg);
+          linkInterval = setInterval(
+            () => this.sendChatToClient(client, msg),
+            1000,
+          );
+        })
+        .then(() => {
+          if (linkInterval) {
+            clearInterval(linkInterval);
+            linkInterval = null;
+          }
+          this.sendChatToClient(
+            client,
+            `Account successfully linked as ${msAuth.username}, you may now reconnect to the server`,
+          );
+          this.sendChatToClient(
+            client,
+            "Use /lce unlink to unlink your account",
+          );
+          this.sendChatToClient(
+            client,
+            "Or use /lce uselink <true/false> to toggle using your linked account",
+          );
+        })
+        .catch((err) => {
+          if (linkInterval) {
+            clearInterval(linkInterval);
+            linkInterval = null;
+          }
+          this.sendChatToClient(
+            client,
+            `Failed to link account: ${err.message || err}`,
+          );
+        });
+    } else if (cmd === "unlink") {
+      if (parts.length !== 2) {
+        this.sendChatToClient(client, "Usage: /lce unlink");
+        return;
+      }
+      const msAuth = require("./auth");
+      msAuth.unlink();
+      this.sendChatToClient(client, "Java Edition account unlinked.");
+    } else if (cmd === "uselink") {
+      if (parts.length !== 3 || (parts[2] !== "true" && parts[2] !== "false")) {
+        this.sendChatToClient(client, "Usage: /lce uselink <true/false>");
+        return;
+      }
+      client.useLinkedAccount = parts[2] === "true";
+      this.sendChatToClient(
+        client,
+        `Using linked account: ${client.useLinkedAccount}`,
+      );
+    } else {
+      this.sendChatToClient(
+        client,
+        "Command not valid. Use /lce connect <ip> or /lce disconnect",
+      );
     }
   }
 
@@ -3850,7 +4099,6 @@ class LCEProxy {
       23: "Server full",
     };
     const reasonText = reasonMap[reason] || `Unknown (${reason})`;
-    console.log(`DISCONNECTED: ${reasonText}`);
 
     if (client.socket && !client.socket.destroyed) {
       try {
@@ -3926,7 +4174,7 @@ class LCEProxy {
     try {
       return await connectToJavaServerFunc(this, client);
     } catch (err) {
-      console.log(`DISCONNECTED: ${err}`);
+      /* do nothing */
     }
   }
 

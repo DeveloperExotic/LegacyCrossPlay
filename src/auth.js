@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 
 const AUTH_CACHE_DIR = path.join(__dirname, "..", ".auth_cache");
+const USER_IDENTIFIER = "lce-proxy-user";
 
 class MicrosoftAuth {
   constructor() {
@@ -22,71 +23,64 @@ class MicrosoftAuth {
     }
   }
 
-  async authenticate() {
+  async authenticate(onDeviceCode) {
     this.ensureCacheDir();
 
-    if (!this.authflow) {
-      const userIdentifier = "lce-proxy-user";
-      this.authflow = new Authflow(userIdentifier, AUTH_CACHE_DIR);
+    this.authflow = new Authflow(USER_IDENTIFIER, AUTH_CACHE_DIR);
+
+    if (onDeviceCode) {
+      this.authflow.codeCallback = onDeviceCode;
     }
 
-    if (!this.authflow.onMsaCode) {
-      this.authflow.onMsaCode = (data) => {
-        console.log("\nYou have not yet logged into your Java account!");
-        const url = `https://microsoft.com/link?otc=${data.userCode}`;
-        console.log(`enter the code ${data.userCode} at ${url}`);
-        console.log(
-          "If you enabled this by accident and would like to only join offline servers, set USE_JAVA_ACCOUNT to false in constants.js\n",
-        );
+    const result = await this.authflow.getMinecraftJavaToken({
+      fetchProfile: true,
+    });
 
-        try {
-          const { exec } = require("child_process");
-          const platform = process.platform;
-          const command =
-            platform === "win32"
-              ? `start ${url}`
-              : platform === "darwin"
-                ? `open ${url}`
-                : `xdg-open ${url}`;
-          exec(command);
-        } catch (err) {
-          /* do nothing */
-        }
-      };
+    if (!result.profile) {
+      throw new Error(
+        "Couldn't log into Java Edition account! Do you own Minecraft Java Edition?",
+      );
     }
 
-    try {
-      const result = await this.authflow.getMinecraftJavaToken({
-        fetchProfile: true,
-      });
+    this.username = result.profile.name;
+    this.uuid = result.profile.id;
+    this.accessToken = result.token;
+    this.authenticated = true;
 
-      if (!result.profile) {
-        throw new Error(
-          "Error logging into Java Edition account! Do you own Minecraft Java Edition?\n",
-        );
-      }
-
-      this.username = result.profile.name;
-      this.uuid = result.profile.id;
-      this.accessToken = result.token;
-      this.authenticated = true;
-
-      return {
-        username: this.username,
-        uuid: this.uuid,
-        accessToken: this.accessToken,
-      };
-    } catch (err) {
-      throw err;
-    }
+    return {
+      username: this.username,
+      uuid: this.uuid,
+      accessToken: this.accessToken,
+    };
   }
 
-  async getAuthData() {
-    return await this.authenticate();
+  unlink() {
+    try {
+      const files = fs.readdirSync(AUTH_CACHE_DIR);
+      for (const file of files) {
+        fs.unlinkSync(path.join(AUTH_CACHE_DIR, file));
+      }
+    } catch (e) {
+      /* do nothing */
+    }
+    this.authflow = null;
+    this.authenticated = false;
+    this.username = null;
+    this.uuid = null;
+    this.accessToken = null;
   }
 
   isAuthenticated() {
     return this.authenticated;
+  }
+
+  hasCachedAccount() {
+    try {
+      const files = fs.readdirSync(AUTH_CACHE_DIR);
+      return files.length > 0;
+    } catch (e) {
+      return false;
+    }
   }
 }
 

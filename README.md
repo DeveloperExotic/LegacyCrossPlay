@@ -10,18 +10,37 @@
 **Client modifications, or server plugins ARE NOT required!**
 
 - Install [NodeJS](https://nodejs.org/en/download), you may need to restart your computer after
-- Start a localhost Java Edition server running on port 25564, and in offline mode (you can edit these in `server.properties`)
 - Run the file `install_dependencies.bat`, - you only need to run this file one time.
-- Run `start.bat`, the Java Edition server will appear in the join tab on Legacy Console Edition! You can configure the server IP / PORT in `constants.js`.
+- Run `start.bat`, the proxy will appear in the join tab on Legacy Console Edition!
 
-# Known issues, will be fixed
+---
 
-- Crafting is buggy
-- You're unable to accept villager trades
+# How to Use
+
+Use the `/lce` commands to manage your connection between Legacy Edition and Java Edition:
+
+- `/lce connect <ip>`  
+  Connect to a Java Edition server.
+
+- `/lce disconnect`  
+  Disconnect from the Java Edition server.
+
+- `/lce link`  
+  Link your Java Edition account.
+
+- `/lce unlink`  
+  Unlink your Java Edition account.
+
+- `/lce uselink <true/false>`  
+  Enable or disable the use of your linked Java Edition account when connecting.
 
 ---
 
 # TODO
+
+- Crafting is buggy / not fully implemented
+- You're unable to accept villager trades
+- Lighting is a little bugged in other dimensions (afaik)
 
 ## Chunks
 

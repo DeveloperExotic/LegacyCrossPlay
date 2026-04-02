@@ -16,12 +16,16 @@ class LANBroadcast {
       this.buffer.writeUInt16LE(char, 8 + i * 2);
     }
 
-    this.buffer.writeUInt8(1, 72); //player count including host
+    this.buffer.writeUInt8(1, 72); //player count (updated dynamically)
     this.buffer.writeUInt8(8, 73); //max players
     this.buffer.writeUInt32LE(0, 74); //host settings
     this.buffer.writeUInt32LE(0, 78); //texture pack ID
     this.buffer.writeUInt8(0, 82); //sub texture pack ID
     this.buffer.writeUInt8(1, 83); //is joinable
+  }
+
+  setPlayerCount(count) {
+    this.buffer.writeUInt8(Math.max(1, count), 72);
   }
 }
 

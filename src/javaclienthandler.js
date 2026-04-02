@@ -5,7 +5,7 @@
 //beware that there are a lot of magic numbers, need to do a refractor soon.
 
 const mc = require("minecraft-protocol");
-const { USE_LEGACY_USERNAME, CUSTOM_USERNAME } = require("../constants");
+
 const msAuth = require("./auth");
 const PacketWriter = require("./packetwriter");
 const { mapJavaItemToLCE, mapJavaBlockToLCE } = require("./mappings");
@@ -26,9 +26,7 @@ async function connectToJavaServer(proxy, client) {
   let authConfig = {
     host: serverConfig.host,
     port: serverConfig.port,
-    username: !USE_LEGACY_USERNAME
-      ? CUSTOM_USERNAME
-      : client.username || "undefined",
+    username: client.username || "Player",
     auth: "offline",
     version: "1.8.9",
   };
@@ -50,9 +48,6 @@ async function connectToJavaServer(proxy, client) {
         version: "1.8.9",
       };
     } else {
-      console.log(
-        `Server ${serverConfig.name} requires authentication. Authenticating...`,
-      );
       await msAuth.authenticate();
       authConfig = {
         host: serverConfig.host,
@@ -82,72 +77,61 @@ async function connectToJavaServer(proxy, client) {
   client.javaClient = javaClient;
   client._lastJavaPackets = [];
 
+  const returnToLobby = (message) => {
+    if (client.socket && client.socket.destroyed) return;
+    const old = client.javaClient;
+    client.javaClient = null;
+    client.inLobby = true;
+    if (old) {
+      old.removeAllListeners();
+      old.on("error", () => {
+        /* do nothing */
+      });
+      try {
+        old.end();
+      } catch (e) {
+        /* do nothing */
+      }
+    }
+    proxy.enterLobby(client, message);
+  };
+
   javaClient.on("error", (err) => {
-    console.log(`DISCONNECTED: ${err}`);
-    if (!client._removing) {
-      client._removing = true;
-      const index = proxy.clients.indexOf(client);
-      if (index > -1) {
-        proxy.clients.splice(index, 1);
-      }
-      if (client.smallId) {
-        proxy.usedSmallIds.delete(client.smallId);
-      }
-      client.javaClient = null;
-      if (client.socket && !client.socket.destroyed) {
-        try {
-          const writer = new PacketWriter();
-          writer.writeInt(20);
-          proxy.sendPacket(client, 0xff, writer.toBuffer());
-          client.socket.destroy();
-        } catch (err) {
-          /* do nothing */
-        }
-      }
-    }
+    returnToLobby(`Connection error: ${err.message || err}`);
   });
 
-  javaClient.on("disconnect", (packet) => {
-    console.log(`DISCONNECTED: ${packet.reason}`);
-    if (!client._removing) {
-      proxy.disconnectClient(client, 2);
+  const handleDisconnectReason = (raw, prefix) => {
+    let text = "";
+    try {
+      text = typeof raw === "string" ? raw : JSON.parse(raw)?.text || raw;
+    } catch (e) {
+      text = String(raw);
     }
-  });
-
-  javaClient.on("kick_disconnect", (packet) => {
-    console.log(`DISCONNECTED: ${packet.reason}`);
-    if (client.state === "play") {
-      let reason = 10;
-      if (packet.reason) {
-        const reasonText =
-          typeof packet.reason === "string"
-            ? packet.reason
-            : JSON.stringify(packet.reason);
-        const lowerReason = reasonText.toLowerCase();
-        if (lowerReason.includes("ban")) {
-          reason = 10;
-        } else if (lowerReason.includes("kick")) {
-          reason = 10;
-        } else if (
-          lowerReason.includes("timeout") ||
-          lowerReason.includes("timed out")
-        ) {
-          reason = 20;
-        } else if (lowerReason.includes("full")) {
-          reason = 23;
-        } else {
-          reason = 10;
-        }
+    if (text.toLowerCase().includes("failed to verify username")) {
+      if (msAuth.hasCachedAccount() && client.useLinkedAccount === false) {
+        returnToLobby(
+          'This server requires a Java Edition account, execute "/lce uselink true"',
+        );
+      } else {
+        returnToLobby(
+          "This server requires a Java Edition account, use /lce link",
+        );
       }
-      proxy.disconnectClient(client, reason);
     } else {
-      proxy.disconnectClient(client, 2);
+      returnToLobby(`${prefix}: ${text}`);
     }
-  });
+  };
+
+  javaClient.on("disconnect", (packet) =>
+    handleDisconnectReason(packet.reason, "Disconnected"),
+  );
+  javaClient.on("kick_disconnect", (packet) =>
+    handleDisconnectReason(packet.reason, "Kicked"),
+  );
 
   javaClient.on("end", () => {
-    if (proxy.clients.indexOf(client) > -1 && !client._removing) {
-      proxy.disconnectClient(client, 2);
+    if (client.javaClient) {
+      returnToLobby("Connection to server closed");
     }
   });
 

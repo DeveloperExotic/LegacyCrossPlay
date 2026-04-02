@@ -1,14 +1,10 @@
 /* --------------------------------------------------------------- */
 /*                          constants.js                           */
 /* --------------------------------------------------------------- */
-const USE_LEGACY_USERNAME = false;
-const CUSTOM_USERNAME = "LCE_Player";
+const LOBBY_NAME = "Legacy Cross Play";
 
-const SERVERS = [
-  { server: "us-1.creepernation.net:25568", cracked: true },
-  { server: "hypixel.net", cracked: false },
-  { server: "localhost:25564", cracked: true },
-];
+/* EVERYTHING IS NOW HANDLED IN GAME, JOIN THE PROXY DIRECTLY INSTEAD OF CONFIGURING THIS FILE! */
+
 
 /* DONT TOUCH THESE BELOW THINGS UNLESS YOU KNOW WHAT YOURE DOING! */
 
@@ -20,8 +16,6 @@ module.exports = {
   GAME_PORT,
   WIN64_LAN_DISCOVERY_PORT,
   MINECRAFT_NET_VERSION,
-  USE_LEGACY_USERNAME,
-  CUSTOM_USERNAME,
-  SERVERS,
+  LOBBY_NAME,
 };
 /* --------------------------------------------------------------- */
